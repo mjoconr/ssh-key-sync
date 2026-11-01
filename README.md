@@ -17,8 +17,8 @@ configuration.
 
 ## Status
 
-Version `0.1.x` provides key retrieval and installation. Enrollment approval,
-signed client self-updates, and a web interface are not implemented yet.
+Version `0.2.x` provides key retrieval, installation, and machine enrollment.
+Signed client self-updates and a web interface are not implemented yet.
 
 ## Install
 
@@ -30,6 +30,21 @@ curl -fsSL \
 
 The installer verifies `SHA256SUMS` and replaces only the client binary.
 Configuration under `/etc/ssh-key-sync` is preserved.
+
+For automated server configuration, pass the server URL and its signing-key
+SHA-256 fingerprint:
+
+```sh
+curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh |
+  sudo sh -s -- \
+    --server https://admin.example.net \
+    --signing-key-sha256 <sha256> \
+    --apply-ssh \
+    --enable-timer
+```
+
+`--apply-ssh` uses the validated configuration and rollback behavior described
+above. Add `--enroll HOSTNAME` instead of `--enable-timer` for a private group.
 
 ## Server
 

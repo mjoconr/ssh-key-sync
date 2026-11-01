@@ -67,9 +67,6 @@ authorized_keys_file = "/etc/ssh/authorized_keys.d/root"
 allow_empty = false
 EOF
 
-printf '%s\n' "$token" > token
-chmod 0600 token
-
 ssh-key-sync-server check-config --config server.toml
 ssh-key-sync-server serve --config server.toml >server.log 2>&1 &
 server_pid=$!
@@ -87,6 +84,18 @@ test ! -e public_authorized_keys
 ssh-key-sync-client --config public-client.toml sync
 test "$(stat -c '%a' public_authorized_keys)" = "600"
 grep -q 'docker-test$' public_authorized_keys
+
+enrollment_output="$(ssh-key-sync-client --config restricted-client.toml enroll --name docker-test)"
+printf '%s\n' "$enrollment_output"
+request_id="$(printf '%s\n' "$enrollment_output" | awk '/^request:/ { print $2 }')"
+test -n "$request_id"
+test "$(stat -c '%a' pending-enrollment.json)" = "600"
+
+ssh-key-sync-client --config restricted-client.toml enrollment-status | grep -q 'status: pending'
+ssh-key-sync-server enrollment list --config server.toml | grep -q "$request_id"
+ssh-key-sync-server enrollment approve "$request_id" --group restricted --config server.toml
+ssh-key-sync-client --config restricted-client.toml enrollment-status | grep -q 'approved for group restricted'
+test "$(stat -c '%a' token)" = "600"
 
 ssh-key-sync-client --config restricted-client.toml sync
 grep -q 'docker-test$' restricted_authorized_keys

@@ -114,6 +114,9 @@ pub struct Config {
     pub listen: String,
     /// File containing a raw 32-byte Ed25519 signing key.
     pub signing_key_file: String,
+    /// Optional SQLite enrollment and token state path.
+    #[serde(default)]
+    pub state_file: Option<String>,
     /// Anonymous group returned by the public endpoint.
     pub default_group: String,
     /// Available groups.

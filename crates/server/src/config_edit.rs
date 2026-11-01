@@ -1,4 +1,9 @@
-use std::{fs, io::Write as _, os::unix::fs::PermissionsExt as _, path::PathBuf};
+use std::{
+    fs,
+    io::Write as _,
+    os::unix::fs::{MetadataExt as _, PermissionsExt as _, chown},
+    path::PathBuf,
+};
 
 use ipnet::IpNet;
 use ssh_key_sync_core::{Config, GroupConfig, KeyConfig, Visibility, parse_public_key, unix_now};
@@ -154,6 +159,9 @@ impl Editor {
         let text = toml::to_string_pretty(&self.config)?;
         Config::parse(&text)?;
         let parent = self.path.parent().ok_or("configuration has no parent")?;
+        let original_owner = fs::metadata(&self.path)
+            .ok()
+            .map(|metadata| (metadata.uid(), metadata.gid()));
         let backup = self
             .path
             .with_extension(format!("before-edit-{}", unix_now()));
@@ -163,6 +171,9 @@ impl Editor {
         let mut temp = tempfile::NamedTempFile::new_in(parent)?;
         temp.as_file()
             .set_permissions(fs::Permissions::from_mode(0o640))?;
+        if let Some((uid, gid)) = original_owner {
+            chown(temp.path(), Some(uid), Some(gid))?;
+        }
         temp.write_all(text.as_bytes())?;
         temp.as_file_mut().sync_all()?;
         temp.persist(&self.path)?;
@@ -192,15 +203,20 @@ keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtF
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("server.toml");
         fs::write(&path, CONFIG).unwrap();
+        let original = fs::metadata(&path).unwrap();
         let mut editor = Editor::open(&path).unwrap();
         editor.add_group("home".into(), false).unwrap();
         editor.add_cidr("home", "203.0.113.0/24").unwrap();
         editor.assign_key("example", "home", true).unwrap();
         let config = Config::load(&path).unwrap();
+        let persisted = fs::metadata(&path).unwrap();
         assert!(config.groups.contains_key("home"));
         assert_eq!(
             config.keys["example"].groups,
             vec!["public".to_owned(), "home".to_owned()]
         );
+        assert_eq!(persisted.permissions().mode() & 0o777, 0o640);
+        assert_eq!(persisted.uid(), original.uid());
+        assert_eq!(persisted.gid(), original.gid());
     }
 }

@@ -38,6 +38,14 @@ pub(crate) struct TokenRecord {
     pub last_client_version: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct AuditRecord {
+    pub action: String,
+    pub subject: String,
+    pub details: String,
+    pub created_at: u64,
+}
+
 impl State {
     pub(crate) fn open(path: impl AsRef<Path>) -> rusqlite::Result<Self> {
         if let Some(parent) = path.as_ref().parent() {
@@ -302,6 +310,37 @@ impl State {
         Ok(changed > 0)
     }
 
+    pub(crate) fn group_has_active_tokens(&self, group: &str) -> rusqlite::Result<bool> {
+        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        db.query_row(
+            "SELECT EXISTS(
+               SELECT 1 FROM machine_tokens
+               WHERE group_name=?1 AND revoked_at IS NULL
+             )",
+            [group],
+            |row| row.get(0),
+        )
+    }
+
+    pub(crate) fn list_audit(&self, subject: Option<&str>) -> rusqlite::Result<Vec<AuditRecord>> {
+        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let mut statement = db.prepare(
+            "SELECT action,subject,details,created_at FROM audit
+             WHERE (?1 IS NULL OR subject=?1)
+             ORDER BY created_at DESC,id DESC LIMIT 200",
+        )?;
+        statement
+            .query_map([subject], |row| {
+                Ok(AuditRecord {
+                    action: row.get(0)?,
+                    subject: row.get(1)?,
+                    details: row.get(2)?,
+                    created_at: row.get::<_, i64>(3)? as u64,
+                })
+            })?
+            .collect()
+    }
+
     fn map_enrollment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Enrollment> {
         Ok(Enrollment {
             id: row.get(0)?,
@@ -437,5 +476,27 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn audit_records_are_available_to_operators() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State::open(dir.path().join("state.db")).unwrap();
+        let (id, _, _) = state
+            .create_enrollment(
+                "host-a",
+                "host-a",
+                &[],
+                "192.0.2.1",
+                &token_digest("secret"),
+                &token_digest("token"),
+            )
+            .unwrap();
+        assert!(state.approve(&id, "restricted").unwrap());
+
+        let records = state.list_audit(Some(&id)).unwrap();
+        assert_eq!(records[0].action, "enrollment.approve");
+        assert_eq!(records[1].action, "enrollment.request");
+        assert_eq!(state.list_audit(None).unwrap().len(), 2);
     }
 }

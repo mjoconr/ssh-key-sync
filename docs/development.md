@@ -18,6 +18,16 @@ Run the Docker integration test with:
 scripts/docker-test.sh
 ```
 
+Build static release binaries for the host architecture with:
+
+```sh
+TARGET_ARCH=x86_64 scripts/build-musl.sh
+TARGET_ARCH=aarch64 scripts/build-musl.sh
+```
+
+The ARM64 build uses Docker Buildx and requires platform emulation when the
+host is not ARM64.
+
 ## Rust Guidelines
 
 - Do not use `unsafe`.
@@ -40,6 +50,8 @@ git tag -a v0.2.0 -m "v0.2.0"
 git push origin v0.2.0
 ```
 
-The release workflow builds the static x86_64 Linux client, generates
-`SHA256SUMS`, and publishes the installer and client archive.
+The release workflow builds static x86-64 and ARM64 Linux clients and servers,
+generates `SHA256SUMS`, and publishes both installers and all archives. Every
+release is explicitly marked latest so out-of-order background jobs cannot
+change which version `/releases/latest/` resolves to.
 

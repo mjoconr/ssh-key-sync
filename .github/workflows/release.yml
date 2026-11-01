@@ -24,10 +24,11 @@ jobs:
         run: |
           asset="ssh-key-sync-client-x86_64-unknown-linux-musl"
           mkdir -p release
-          cp .local/linux-bin/ssh-key-sync-client-musl "release/$asset"
+          mkdir -p release/package
+          cp .local/linux-bin/ssh-key-sync-client-musl release/package/ssh-key-sync-client
           cp install.sh release/install.sh
-          tar -C release -czf "release/$asset.tar.gz" "$asset"
-          rm "release/$asset"
+          tar -C release/package -czf "release/$asset.tar.gz" ssh-key-sync-client
+          rm -rf release/package
           cd release
           sha256sum ./*.tar.gz | sed 's#  \./#  #' > SHA256SUMS
 

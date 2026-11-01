@@ -114,6 +114,9 @@ pub struct Config {
     pub listen: String,
     /// File containing a raw 32-byte Ed25519 signing key.
     pub signing_key_file: String,
+    /// Externally reachable HTTPS URL used by client bootstrap commands.
+    #[serde(default)]
+    pub public_url: Option<String>,
     /// Optional SQLite enrollment and token state path.
     #[serde(default)]
     pub state_file: Option<String>,
@@ -394,6 +397,15 @@ pub fn load_verifying_key(path: impl AsRef<Path>) -> Result<VerifyingKey, Error>
         .map_err(|_| Error::InvalidConfig("verification key must be 32 bytes".into()))?;
     VerifyingKey::from_bytes(&bytes)
         .map_err(|_| Error::InvalidConfig("invalid verification key".into()))
+}
+
+/// Return the SHA-256 fingerprint of the public half of a signing key.
+pub fn signing_key_fingerprint(path: impl AsRef<Path>) -> Result<String, Error> {
+    let key = load_signing_key(path)?;
+    Ok(format!(
+        "{:x}",
+        Sha256::digest(key.verifying_key().to_bytes())
+    ))
 }
 
 /// Return the current Unix timestamp.

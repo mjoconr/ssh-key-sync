@@ -18,7 +18,8 @@ configuration.
 ## Status
 
 Version `0.2.x` provides key retrieval, installation, and machine enrollment.
-Signed client self-updates and a web interface are not implemented yet.
+Version `0.3.x` adds a local terminal administration interface. Signed client
+self-updates and a web interface are not implemented yet.
 
 ## Install
 
@@ -52,6 +53,12 @@ above. Add `--enroll HOSTNAME` instead of `--enable-timer` for a private group.
 ssh-key-sync-server generate-keys --output /etc/ssh-key-sync
 ssh-key-sync-server check-config --config /etc/ssh-key-sync/server.toml
 ssh-key-sync-server serve --config /etc/ssh-key-sync/server.toml
+```
+
+Administrative terminal UI:
+
+```sh
+ssh-key-sync-server tui --config /etc/ssh-key-sync/server.toml
 ```
 
 See [server.toml](examples/server.toml) and

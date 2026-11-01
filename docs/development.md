@@ -3,6 +3,28 @@
 These rules apply to all code, tests, scripts, documentation, and release
 tooling.
 
+## Reference standards
+
+The project follows these external references where they apply:
+
+- [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) for public
+  API naming, documentation, interoperability, type safety, and error behavior.
+- [Rust Style Guide](https://doc.rust-lang.org/style-guide/) and `rustfmt` for
+  source formatting.
+- [ANSSI Secure Rust Guidelines](https://anssi-fr.github.io/rust-guide/) for
+  panic resistance, integer handling, dependency review, and sensitive data
+  handling. This guide is explicitly marked unstable, so individual applied
+  practices must still be justified.
+- [The Cargo Book](https://doc.rust-lang.org/cargo/) for workspace, feature, and
+  release configuration.
+- The RustSec advisory database through `cargo-deny` for known dependency
+  vulnerabilities.
+- OpenSSH manual pages for the exact `sshd_config` and client-key behavior
+  available on supported operating systems.
+
+No reference overrides this repository's documented protocol or security
+invariants. Deviations require an architecture decision record.
+
 ## Rust baseline
 
 - Edition: Rust 2024.

@@ -25,6 +25,7 @@ name of the project. New clients should use the native versioned protocol.
 ## Documentation
 
 - [Architecture](docs/architecture.md) describes components and trust boundaries.
+- [Detailed design](docs/detail-design.md) defines protocols, modules, and errors.
 - [Implementation plan](docs/implementation-plan.md) lists milestones and gates.
 - [Development rules](docs/development.md) defines Rust and repository standards.
 - [Security controls](docs/security.md) defines the threat model and invariants.

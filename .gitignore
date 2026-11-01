@@ -9,6 +9,9 @@
 # Credentials and private keys
 .env
 .env.*
+.netrc
+.npmrc
+.pypirc
 !.env.example
 *.key
 *.pem
@@ -16,6 +19,7 @@
 *.pfx
 *.jks
 *.keystore
+*.kdbx
 *.ovpn
 id_rsa
 id_rsa.*

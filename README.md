@@ -2,6 +2,10 @@
 
 Rust replacements for the legacy SSH public-key distribution service and client.
 
+The project is currently at the design and scaffolding stage. No command shown
+in the design documentation is considered available until it is implemented and
+listed here.
+
 ## Repository layout
 
 - `crates/core` contains protocol types and shared key, group, and CIDR logic.
@@ -13,6 +17,14 @@ one repository so that protocol changes and compatibility tests remain in sync.
 
 The legacy XML-RPC endpoint is a compatibility interface, not the architectural
 name of the project. New clients should use the native versioned protocol.
+
+## Documentation
+
+- [Architecture](docs/architecture.md) describes components and trust boundaries.
+- [Implementation plan](docs/implementation-plan.md) lists milestones and gates.
+- [Development rules](docs/development.md) defines Rust and repository standards.
+- [Security controls](docs/security.md) defines the threat model and invariants.
+- [Contributing](CONTRIBUTING.md) describes the required local checks.
 
 ## Public repository policy
 
@@ -29,5 +41,8 @@ This repository is intended to remain safe to publish.
 
 Run `scripts/check-public-tree.sh` before the first push and after adding
 fixtures or deployment files.
+
+No open-source license has been selected yet. The repository should remain
+private until the owner chooses a license and reviews all release tooling.
 
 

@@ -8,3 +8,6 @@ publish = false
 [dependencies]
 ssh-key-sync-core.workspace = true
 
+[lints]
+workspace = true
+

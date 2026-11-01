@@ -199,16 +199,23 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
             KeyCode::Char('c') => {
                 copy_to_clipboard(&app.public_install_command())?;
                 app.message = "copied public install command".into();
+                app.enrollment_index = 0;
+                app.overlay = Overlay::None;
             }
             KeyCode::Char('p') => {
                 copy_to_clipboard(&app.private_install_command(hostname))?;
-                app.message = "copied enrollment command".into();
+                app.message = "copied enrollment command; new requests appear automatically".into();
+                app.enrollment_index = 0;
+                app.overlay = Overlay::None;
             }
             _ => {}
         },
         Overlay::None => match code {
             KeyCode::Char('q') => return Ok(true),
-            KeyCode::Char('i') => app.overlay = Overlay::InstallInput(String::new()),
+            KeyCode::Char('i') => {
+                app.enrollment_index = 0;
+                app.overlay = Overlay::InstallInput(String::new());
+            }
             KeyCode::Tab => {
                 app.tab = match app.tab {
                     Tab::Enrollments => Tab::Tokens,

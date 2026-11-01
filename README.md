@@ -81,6 +81,16 @@ Run the disposable Linux integration test with:
 scripts/docker-test.sh
 ```
 
+Install the released static client with:
+
+```sh
+curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh | sudo sh
+```
+
+For the repository's current private visibility, authenticate with `GH_TOKEN`.
+The installer verifies the release checksum and preserves existing
+`/etc/ssh-key-sync` configuration during upgrades.
+
 No open-source license has been selected yet. The repository should remain
 private until the owner chooses a license and reviews all release tooling.
 

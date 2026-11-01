@@ -19,7 +19,7 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
-use ssh_key_sync_core::{Config, parse_public_key, signing_key_fingerprint};
+use ssh_key_sync_core::{Config, parse_public_key, public_key_algorithm, signing_key_fingerprint};
 
 use crate::{
     config_edit, open_state,
@@ -45,6 +45,7 @@ struct KeyAddForm {
 #[derive(Clone)]
 struct KeyRow {
     owner: String,
+    algorithm: String,
     fingerprint: String,
     groups: Vec<String>,
 }
@@ -768,6 +769,7 @@ impl App {
                 entry.keys.iter().filter_map(|key| {
                     parse_public_key(key).ok().map(|parsed| KeyRow {
                         owner: owner.clone(),
+                        algorithm: public_key_algorithm(key).unwrap_or_else(|_| "unknown".into()),
                         fingerprint: parsed.fingerprint,
                         groups: entry.groups.clone(),
                     })
@@ -1456,8 +1458,9 @@ fn draw_keys(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .iter()
         .map(|item| {
             ListItem::new(format!(
-                "{:<18} {}",
+                "{:<12} {:<24} {}",
                 item.owner,
+                item.algorithm,
                 item.fingerprint.trim_start_matches("SHA256:")
             ))
         })
@@ -1483,6 +1486,7 @@ fn draw_keys(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         |item| {
             vec![
                 Line::from(format!("Owner: {}", item.owner)),
+                Line::from(format!("Type: {}", item.algorithm)),
                 Line::from(format!("Fingerprint: {}", item.fingerprint)),
                 Line::from(format!("Groups: {}", item.groups.join(", "))),
             ]

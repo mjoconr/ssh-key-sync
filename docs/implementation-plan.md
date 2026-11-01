@@ -36,6 +36,8 @@ approved fixtures.
 
 - Add configuration validation CLI and safe reload.
 - Add group and machine token creation, rotation, and revocation.
+- Add expiring enrollment requests, rate limits, and approve/deny audit records.
+- Add loopback-only admin API and enrollment CLI.
 - Implement the native signed response endpoint.
 - Implement the legacy `/xmlrpc/` endpoint.
 - Add request-size, timeout, trusted-proxy, and rate-limit controls.
@@ -48,6 +50,7 @@ replace the last good version; rollback to PHP remains available.
 ## Phase 3: client dry run and sync
 
 - Add portable HTTPS transport with embedded roots and bounded responses.
+- Add interactive enrollment and pending-approval polling.
 - Verify signatures and freshness.
 - Implement key validation, empty-response protection, locking, and atomic file
   replacement.
@@ -63,6 +66,7 @@ Exit gate: no failure mode can truncate the existing key file.
 - Validate with `sshd -t`; support rollback.
 - Add systemd service/timer and legacy cron installation.
 - Preserve stable command paths for old machines.
+- Add the optional loopback-only enrollment approval UI after the CLI workflow.
 
 Exit gate: test on a snapshot or clone of the PVR frontend, then the master, then
 the mail host, retaining an active recovery session throughout.

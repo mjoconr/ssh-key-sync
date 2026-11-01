@@ -49,6 +49,10 @@ limit which public sets are exposed, so they remain separately configurable.
 - Never let a client-supplied address override the observed network address.
 - Never send a reusable machine bearer token over plaintext HTTP.
 - Never store a plaintext machine token in server configuration or logs.
+- Never approve enrollment automatically.
+- Never let an enrollment request retrieve keys before approval.
+- Never treat an enrollment hostname or source address as verified identity.
+- Never store a plaintext enrollment secret or issued token.
 - Never modify Proxmox's `/root/.ssh/authorized_keys`.
 - Never reload `sshd` with a configuration that failed `sshd -t`.
 - Never update to an older client or protocol version automatically.
@@ -71,6 +75,10 @@ limit which public sets are exposed, so they remain separately configurable.
   individually.
 - An anonymous public group is allowed only through explicit configuration and
   never as a fallback after failed CIDR or token authentication.
+- Enrollment requests have high-entropy secrets, short expiries, bounded queues,
+  and rate limits.
+- Approval and denial decisions are audited with the administrator, request
+  metadata, selected group, token identifier, and timestamp.
 - Configuration writes are serialized, validated, backed up, and atomically
   replaced. Invalid reloads preserve the last good in-memory configuration.
 - SSH keys are parsed and canonicalized with an established OpenSSH key library.
@@ -122,6 +130,10 @@ administrative path.
 Machine bearer tokens are accepted only over HTTPS. For a legacy HTTP path they
 must be protected inside an SSH or VPN tunnel, or replaced by a reviewed
 challenge-response proof implemented by both client and server.
+
+An issued enrollment token may be returned only to the matching request secret
+over HTTPS. The admin CLI and UI authenticate locally through SSH access, a Unix
+socket, or a separately reviewed administrator authentication mechanism.
 
 ## Release and update controls
 

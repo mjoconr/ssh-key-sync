@@ -57,10 +57,11 @@ repository so protocol compatibility and release versions cannot drift.
 6. The legacy endpoint renders the compatible XML-RPC string and trailing
    newline.
 
-The configuration file is the source of truth. It contains key groups,
-CIDR-to-group rules, machine records, and token hashes. There is no
-administration database in the initial design. Changes are validated before an
-atomic replace and are reloaded only when valid.
+The key-selection configuration file is the source of truth for groups, CIDR
+rules, keys, and machine assignments. Changes are validated before an atomic
+replace and are reloaded only when valid. Pending enrollment requests, token
+records, and the audit trail use an embedded local SQLite state database. This
+state is not a central configuration service and is never pushed to clients.
 
 Tokens may be scoped to a group or to one machine:
 
@@ -82,6 +83,51 @@ selects a key group and optionally identifies a machine. If the operator intenti
 exposes one signed default group to every client, native clients may use that
 group without a token. Anonymous access must be explicit configuration; it must
 not be an accidental fallback when token authentication or a CIDR match fails.
+
+## Enrollment requests
+
+Enrollment is an approval workflow, not automatic trust:
+
+1. The operator runs `ssh-key-sync-client enroll` on a new machine.
+2. The client creates a high-entropy enrollment secret and sends a bounded
+   request containing its suggested name, hostname claim, client version, and
+   the digest of that secret.
+3. The server records a pending request with an expiry time and displays a short
+   request code. A hostname claim and observed source address are metadata only;
+   neither grants access.
+4. An administrator reviews the request through the loopback-only CLI or UI.
+   The administrator may approve it into a group, attach additional machine
+   restrictions, or deny it.
+5. Approval issues a unique machine token bound to the selected policy. The
+   client polls using its enrollment secret and receives the token over HTTPS.
+6. The client stores the token with mode `0600` and deletes the enrollment
+   secret after successful completion.
+
+Pending requests expire automatically and cannot retrieve keys. The queue is
+bounded and rate-limited to limit spam. The administrator should verify the
+request code out-of-band when the machine or network path is not already known.
+
+An approval targets an existing group or an explicitly created dedicated group.
+Machine records may reference one or more groups and optional source CIDRs.
+Ad-hoc key lists on individual enrollment records are avoided so configuration
+remains reviewable.
+
+Enrollment always issues a new unique machine token, even when several machines
+use the same group. Shared group tokens remain available for manually
+pre-provisioned fleets, but an existing token cannot be recovered from its
+stored digest.
+
+Example administrative commands:
+
+```text
+ssh-key-sync-server enrollment list
+ssh-key-sync-server enrollment show <request-id>
+ssh-key-sync-server enrollment approve <request-id> --group displays
+ssh-key-sync-server enrollment deny <request-id>
+```
+
+These command names describe the intended interface; they are not implemented
+yet. The optional UI uses the same local admin API and remains bound to loopback.
 
 ## Selection rules
 

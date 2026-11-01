@@ -142,6 +142,19 @@ install -m 0644 "$tmp/signing.pub" /etc/ssh-key-sync/signing.pub
 } > /etc/ssh-key-sync/client.toml
 chmod 0600 /etc/ssh-key-sync/client.toml
 
+if [ "$enable_timer" -eq 1 ] || [ -n "$enroll_name" ]; then
+    download "$base/ssh-key-sync-client.service" "$tmp/ssh-key-sync-client.service"
+    download "$base/ssh-key-sync-client.timer" "$tmp/ssh-key-sync-client.timer"
+    for file in ssh-key-sync-client.service ssh-key-sync-client.timer; do
+        expected="$(awk -v file="$file" '$2 == file { print $1 }' "$tmp/SHA256SUMS")"
+        actual="$(sha256sum "$tmp/$file" | awk '{ print $1 }')"
+        [ "$actual" = "$expected" ] || { echo "Checksum verification failed for $file" >&2; exit 1; }
+    done
+    install -m 0644 "$tmp/ssh-key-sync-client.service" /etc/systemd/system/
+    install -m 0644 "$tmp/ssh-key-sync-client.timer" /etc/systemd/system/
+    systemctl daemon-reload
+fi
+
 if [ -n "$enroll_name" ]; then
     if [ "$apply_ssh" -eq 1 ]; then
         /usr/local/bin/ssh-key-sync-client \
@@ -153,6 +166,8 @@ if [ -n "$enroll_name" ]; then
         enroll --name "$enroll_name"
     echo "Wait for administrator approval, then run:"
     echo "  ssh-key-sync-client --config /etc/ssh-key-sync/client.toml enrollment-status --wait"
+    echo "Then enable the timer:"
+    echo "  systemctl enable --now ssh-key-sync-client.timer"
     exit 0
 fi
 
@@ -166,16 +181,6 @@ if [ "$apply_ssh" -eq 1 ]; then
 fi
 
 if [ "$enable_timer" -eq 1 ]; then
-    download "$base/ssh-key-sync-client.service" "$tmp/ssh-key-sync-client.service"
-    download "$base/ssh-key-sync-client.timer" "$tmp/ssh-key-sync-client.timer"
-    for file in ssh-key-sync-client.service ssh-key-sync-client.timer; do
-        expected="$(awk -v file="$file" '$2 == file { print $1 }' "$tmp/SHA256SUMS")"
-        actual="$(sha256sum "$tmp/$file" | awk '{ print $1 }')"
-        [ "$actual" = "$expected" ] || { echo "Checksum verification failed for $file" >&2; exit 1; }
-    done
-    install -m 0644 "$tmp/ssh-key-sync-client.service" /etc/systemd/system/
-    install -m 0644 "$tmp/ssh-key-sync-client.timer" /etc/systemd/system/
-    systemctl daemon-reload
     systemctl enable --now ssh-key-sync-client.timer
 fi
 

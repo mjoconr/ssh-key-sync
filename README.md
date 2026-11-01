@@ -9,7 +9,8 @@ configuration.
 - Public groups and token-protected groups.
 - CIDR-based group selection for the compatibility API.
 - Ed25519-signed native responses bound to a client nonce.
-- Static Linux client supporting old and current OpenSSH installations.
+- Static Linux x86-64 and ARM64 client builds supporting old and current
+  OpenSSH installations.
 - Atomic `authorized_keys` replacement with empty-response protection.
 - Separate managed and existing authorization files.
 - Safe `sshd` changes with validation, reload, and rollback.
@@ -33,6 +34,9 @@ curl -fsSL \
 
 The installer verifies `SHA256SUMS` and replaces only the client binary.
 Configuration under `/etc/ssh-key-sync` is preserved.
+
+Static builds are published for both `x86_64` and `aarch64`, including
+Raspberry Pi systems.
 
 For automated server configuration, pass the server URL and its signing-key
 SHA-256 fingerprint:
@@ -61,6 +65,14 @@ Administrative terminal UI:
 
 ```sh
 ssh-key-sync-server tui --config /etc/ssh-key-sync/server.toml
+```
+
+Install or upgrade a server binary from a published release with:
+
+```sh
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install-server.sh |
+  sudo sh
 ```
 
 See [server.toml](examples/server.toml) and

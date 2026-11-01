@@ -15,26 +15,36 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Build static client
+      - name: Enable ARM64 emulation
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build static binaries
         run: |
-          chmod +x scripts/build-musl-client.sh
-          scripts/build-musl-client.sh
+          chmod +x scripts/build-musl.sh
+          TARGET_ARCH=x86_64 scripts/build-musl.sh
+          TARGET_ARCH=aarch64 scripts/build-musl.sh
 
       - name: Package release assets
         run: |
-          asset="ssh-key-sync-client-x86_64-unknown-linux-musl"
-          server_asset="ssh-key-sync-server-x86_64-unknown-linux-musl"
           mkdir -p release
-          mkdir -p release/package
-          cp .local/linux-bin/ssh-key-sync-client-musl release/package/ssh-key-sync-client
-          cp .local/linux-bin/ssh-key-sync-server-musl release/package/ssh-key-sync-server
+          for target in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            arch="${target%%-*}"
+            package="release/package-$target"
+            mkdir -p "$package"
+            cp ".local/linux-bin/$arch/ssh-key-sync-client" "$package/ssh-key-sync-client"
+            cp ".local/linux-bin/$arch/ssh-key-sync-server" "$package/ssh-key-sync-server"
+            tar -C "$package" -czf "release/ssh-key-sync-client-$target.tar.gz" ssh-key-sync-client
+            tar -C "$package" -czf "release/ssh-key-sync-server-$target.tar.gz" ssh-key-sync-server
+          done
           cp install.sh release/install.sh
+          cp install-server.sh release/install-server.sh
           cp deploy/ssh-key-sync-client.service release/
           cp deploy/ssh-key-sync-client.timer release/
           cp deploy/ssh-key-sync-server.service release/
-          tar -C release/package -czf "release/$asset.tar.gz" ssh-key-sync-client
-          tar -C release/package -czf "release/$server_asset.tar.gz" ssh-key-sync-server
-          rm -rf release/package
+          rm -rf release/package-*
           cd release
           sha256sum ./*.tar.gz ./ssh-key-sync-client.service ./ssh-key-sync-client.timer ./ssh-key-sync-server.service |
             sed 's#  \./#  #' > SHA256SUMS
@@ -42,5 +52,5 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes --latest
 

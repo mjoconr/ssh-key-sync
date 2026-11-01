@@ -160,6 +160,35 @@ ssh-key-sync-server group remove staging
 `group remove` and `key remove` reject unsafe changes through normal
 configuration validation. A timestamped backup is created before each edit.
 
+## Terminal UI
+
+Open the local administration interface with:
+
+```sh
+ssh-key-sync-server tui
+```
+
+The TUI refreshes pending enrollment state every two seconds, shows the pending
+count, and emits a terminal bell when a new request arrives. Use `F5` to reload
+the server configuration after an external edit.
+
+| Key | Action |
+| --- | --- |
+| `Tab` | Move between enrollments, tokens, groups, and public keys |
+| `A` | Approve an enrollment, add a group, or add a public key |
+| `D` | Deny a pending enrollment |
+| `R` | Revoke a selected token |
+| `C` | Manage CIDRs for a selected group |
+| `G` | Toggle a selected key owner's group assignments |
+| `P` | Start the guided hostname-replacement flow |
+| `V` | Show the selected enrollment or token audit trail |
+| `X` | Remove, retire, or hide the selected item after confirmation |
+| `I` | Enter a hostname and generate copyable install commands |
+| `Q` | Exit |
+
+The key editor accepts terminal paste events. A group with active machine
+tokens cannot be removed until those tokens are retired.
+
 ## Server Upgrade
 
 1. Validate the new build in Docker:
@@ -187,6 +216,19 @@ curl -fsS http://127.0.0.1:18080/v1/health
 ```
 
 5. Confirm both `/v1/keys/public` and `/xmlrpc/` still respond.
+
+The packaged server installer performs the download, checksum and configuration
+checks, binary replacement, restart, and health check. If health does not
+return within 15 seconds it restores the previous binary and restarts the
+service:
+
+```sh
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install-server.sh |
+  sudo sh
+```
+
+The database, server configuration, and signing key are never replaced.
 
 ## Token Management
 

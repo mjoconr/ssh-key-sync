@@ -184,6 +184,7 @@ the server configuration after an external edit.
 | `V` | Show the selected enrollment or token audit trail |
 | `X` | Remove, retire, or hide the selected item after confirmation |
 | `I` | Enter a hostname and generate copyable install commands |
+| `U` | Toggle auto-update in the generated install commands |
 | `Q` | Exit |
 
 The key editor accepts terminal paste events. A group with active machine

@@ -69,6 +69,7 @@ enum Overlay {
     HostGuide {
         hostname: String,
         replacement_for: Option<String>,
+        auto_update: bool,
     },
     GroupAdd {
         name: String,
@@ -289,6 +290,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                 app.overlay = Overlay::HostGuide {
                     hostname: value,
                     replacement_for,
+                    auto_update: false,
                 };
             }
             KeyCode::Char(c) if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':') => {
@@ -303,16 +305,24 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
         Overlay::HostGuide {
             hostname,
             replacement_for,
+            auto_update,
         } => match code {
             KeyCode::Esc | KeyCode::Char('i' | 'I') => app.overlay = Overlay::None,
+            KeyCode::Char('u' | 'U') => {
+                app.overlay = Overlay::HostGuide {
+                    hostname,
+                    replacement_for,
+                    auto_update: !auto_update,
+                };
+            }
             KeyCode::Char('c' | 'C') => {
-                copy_to_clipboard(&app.public_install_command())?;
+                copy_to_clipboard(&app.public_install_command(auto_update))?;
                 app.message = "copied public install command".into();
                 app.enrollment_index = 0;
                 app.overlay = Overlay::None;
             }
             KeyCode::Char('p' | 'P') => {
-                copy_to_clipboard(&app.private_install_command(&hostname))?;
+                copy_to_clipboard(&app.private_install_command(&hostname, auto_update))?;
                 app.enrollment_index = 0;
                 app.replacement_for = replacement_for;
                 app.message = "copied enrollment command; waiting for the request to appear".into();
@@ -647,17 +657,30 @@ fn handle_paste(app: &mut App, text: &str) {
 }
 
 impl App {
-    fn public_install_command(&self) -> String {
+    fn public_install_command(&self, auto_update: bool) -> String {
         format!(
-            "curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh | sudo sh -s -- --server {} --signing-key-sha256 {} --apply-ssh --enable-timer",
-            self.public_url, self.signing_fingerprint
+            "curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh | sudo sh -s -- --server {} --signing-key-sha256 {} --apply-ssh --enable-timer{}",
+            self.public_url,
+            self.signing_fingerprint,
+            if auto_update {
+                " --enable-auto-update"
+            } else {
+                ""
+            }
         )
     }
 
-    fn private_install_command(&self, hostname: &str) -> String {
+    fn private_install_command(&self, hostname: &str, auto_update: bool) -> String {
         format!(
-            "curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh | sudo sh -s -- --server {} --signing-key-sha256 {} --apply-ssh --enroll {}",
-            self.public_url, self.signing_fingerprint, hostname
+            "curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh | sudo sh -s -- --server {} --signing-key-sha256 {} --apply-ssh --enroll {}{}",
+            self.public_url,
+            self.signing_fingerprint,
+            hostname,
+            if auto_update {
+                " --enable-auto-update"
+            } else {
+                ""
+            }
         )
     }
 
@@ -1021,7 +1044,14 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         Overlay::HostGuide {
             hostname,
             replacement_for,
-        } => draw_host_guide(frame, app, hostname, replacement_for.as_deref()),
+            auto_update,
+        } => draw_host_guide(
+            frame,
+            app,
+            hostname,
+            replacement_for.as_deref(),
+            *auto_update,
+        ),
         Overlay::GroupAdd { name, public } => draw_group_input(frame, name, *public),
         Overlay::ConfirmGroupRemove(name) => {
             draw_confirmation(frame, &format!("Remove group {name}? [y/n]"));
@@ -1073,15 +1103,16 @@ fn draw_host_guide(
     app: &App,
     hostname: &str,
     replacing: Option<&str>,
+    auto_update: bool,
 ) {
     let area = centered(frame.area(), 94, 62);
     frame.render_widget(Clear, area);
     let mut lines = vec![
         Line::from("Public-group install:"),
-        Line::from(app.public_install_command()),
+        Line::from(app.public_install_command(auto_update)),
         Line::from(""),
         Line::from("Private-group enrollment:"),
-        Line::from(app.private_install_command(hostname)),
+        Line::from(app.private_install_command(hostname, auto_update)),
         Line::from(""),
     ];
     if let Some(old) = replacing {
@@ -1094,9 +1125,10 @@ fn draw_host_guide(
             Line::from(""),
         ]);
     }
-    lines.push(Line::from(
-        "[c] copy public  [p] copy enrollment  [Esc] close",
-    ));
+    lines.push(Line::from(format!(
+        "[u] auto-update {}  [c] copy public  [p] copy enrollment  [Esc] close",
+        if auto_update { "ON" } else { "OFF" }
+    )));
     frame.render_widget(
         Paragraph::new(lines).wrap(Wrap { trim: true }).block(
             Block::default()

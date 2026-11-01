@@ -24,6 +24,7 @@ name of the project. New clients should use the native versioned protocol.
 - [Implementation plan](docs/implementation-plan.md) lists milestones and gates.
 - [Development rules](docs/development.md) defines Rust and repository standards.
 - [Security controls](docs/security.md) defines the threat model and invariants.
+- [GitHub security setup](docs/github-security.md) tracks repository controls.
 - [Contributing](CONTRIBUTING.md) describes the required local checks.
 
 ## Public repository policy

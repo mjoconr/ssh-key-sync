@@ -30,3 +30,6 @@ bug and for every new security invariant.
 Do not add production configuration, infrastructure addresses, personal public
 keys, credentials, signing keys, or release private keys to the repository.
 
+Do not open a public issue for a suspected vulnerability. Follow
+[SECURITY.md](SECURITY.md) and use a private security advisory.
+

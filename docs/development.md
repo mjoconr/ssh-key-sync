@@ -28,6 +28,17 @@ TARGET_ARCH=aarch64 scripts/build-musl.sh
 The ARM64 build uses Docker Buildx and requires platform emulation when the
 host is not ARM64.
 
+Inspect and remove generated local build data with:
+
+```sh
+scripts/clean-local-cache.sh
+scripts/clean-local-cache.sh --apply
+scripts/clean-local-cache.sh --apply --include-local-artifacts
+```
+
+The script is a dry run unless `--apply` is supplied. `target/` is always
+reported; `.local/linux-bin/` is removed only when explicitly requested.
+
 ## Rust Guidelines
 
 - Do not use `unsafe`.

@@ -292,6 +292,13 @@ pub fn parse_public_key(line: &str) -> Result<KeyRecord, Error> {
     })
 }
 
+/// Return the canonical OpenSSH algorithm name for a public key.
+pub fn public_key_algorithm(line: &str) -> Result<String, Error> {
+    let key =
+        PublicKey::from_openssh(line).map_err(|error| Error::InvalidKey(error.to_string()))?;
+    Ok(key.algorithm().as_str().to_owned())
+}
+
 /// Hash a high-entropy token for server storage.
 pub fn token_digest(plaintext: &str) -> String {
     format!("sha256:{:x}", Sha256::digest(plaintext.as_bytes()))
@@ -473,5 +480,10 @@ digest = "{}"
             verify_envelope(&envelope, &signing_key.verifying_key(), &nonce, 150).unwrap(),
             payload
         );
+    }
+
+    #[test]
+    fn reports_public_key_algorithm() {
+        assert_eq!(public_key_algorithm(KEY).unwrap(), "ssh-ed25519");
     }
 }

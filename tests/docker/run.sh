@@ -97,6 +97,10 @@ ssh-key-sync-server enrollment approve "$request_id" --group restricted --config
 ssh-key-sync-client --config restricted-client.toml enrollment-status | grep -q 'approved for group restricted'
 test "$(stat -c '%a' token)" = "600"
 
+ssh-key-sync-server backup --config server.toml --output-directory "$test_root/backups" --retain 2
+test -n "$(find "$test_root/backups" -maxdepth 1 -name 'state-*.db' -print -quit)"
+test "$(stat -c '%a' "$test_root"/backups/state-*.db)" = "600"
+
 ssh-key-sync-client --config restricted-client.toml sync
 grep -q 'docker-test$' restricted_authorized_keys
 

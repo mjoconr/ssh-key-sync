@@ -8,6 +8,7 @@ server_url=""
 signing_key_sha256=""
 apply_ssh=0
 enable_timer=0
+enable_auto_update=0
 enroll_name=""
 
 usage() {
@@ -17,6 +18,7 @@ usage() {
     echo "  --signing-key-sha256 HEX"
     echo "  --apply-ssh"
     echo "  --enable-timer"
+    echo "  --enable-auto-update"
     echo "  --enroll NAME"
     echo "Set GH_TOKEN when installing from a private repository."
 }
@@ -46,6 +48,10 @@ while [ "$#" -gt 0 ]; do
             enable_timer=1
             shift
             ;;
+        --enable-auto-update)
+            enable_auto_update=1
+            shift
+            ;;
         --enroll)
             [ "$#" -ge 2 ] || { usage >&2; exit 2; }
             enroll_name="$2"
@@ -68,6 +74,10 @@ case "$(uname -m)" in
     *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
+if [ -f /etc/ssh-key-sync/client-auto-update ]; then
+    enable_auto_update=1
+fi
+
 if [ "$version" = "latest" ]; then
     base="https://github.com/$repo/releases/latest/download"
 else
@@ -86,17 +96,63 @@ download() {
     fi
 }
 
+verify_download() {
+    file="$1"
+    expected="$(awk -v file="$file" '$2 == file { print $1 }' "$tmp/SHA256SUMS")"
+    [ -n "$expected" ] || { echo "No checksum for $file" >&2; exit 1; }
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual="$(sha256sum "$tmp/$file" | awk '{ print $1 }')"
+    else
+        actual="$(shasum -a 256 "$tmp/$file" | awk '{ print $1 }')"
+    fi
+    [ "$actual" = "$expected" ] || {
+        echo "Checksum verification failed for $file" >&2
+        exit 1
+    }
+}
+
+install_client_auto_update() {
+    download "$base/install.sh" "$tmp/install.sh"
+    download "$base/ssh-key-sync-client-update.service" "$tmp/ssh-key-sync-client-update.service"
+    download "$base/ssh-key-sync-client-update.timer" "$tmp/ssh-key-sync-client-update.timer"
+    verify_download install.sh
+    verify_download ssh-key-sync-client-update.service
+    verify_download ssh-key-sync-client-update.timer
+    install -d -m 0755 /usr/local/lib/ssh-key-sync
+    install -d -m 0750 /etc/ssh-key-sync
+    install -m 0755 "$tmp/install.sh" /usr/local/lib/ssh-key-sync/install.sh
+    : > /etc/ssh-key-sync/client-auto-update
+    if [ "$use_systemd" -eq 1 ]; then
+        install -m 0644 "$tmp/ssh-key-sync-client-update.service" /etc/systemd/system/
+        install -m 0644 "$tmp/ssh-key-sync-client-update.timer" /etc/systemd/system/
+        systemctl daemon-reload
+        systemctl enable --now ssh-key-sync-client-update.timer
+        echo "Enabled ssh-key-sync-client-update.timer"
+        return
+    fi
+    command -v crontab >/dev/null 2>&1 || {
+        echo "crontab is required for auto-update on non-systemd hosts" >&2
+        exit 1
+    }
+    existing="$(crontab -l 2>/dev/null || true)"
+    update_command="/usr/local/lib/ssh-key-sync/install.sh >/dev/null 2>&1"
+    rendered="$(
+        printf '%s\n' "$existing" |
+            awk -v command="$update_command" 'index($0, command) == 0'
+        printf '37 4 * * * %s\n' "$update_command"
+    )"
+    if [ -n "$existing" ] && [ ! -e /root/crontab.before-ssh-key-sync-update ]; then
+        printf '%s\n' "$existing" > /root/crontab.before-ssh-key-sync-update
+        chmod 0600 /root/crontab.before-ssh-key-sync-update
+    fi
+    printf '%s\n' "$rendered" | crontab -
+    echo "Enabled daily client auto-update through cron"
+}
+
 download "$base/$asset" "$tmp/$asset"
 download "$base/SHA256SUMS" "$tmp/SHA256SUMS"
 
-expected="$(awk -v file="$asset" '$2 == file { print $1 }' "$tmp/SHA256SUMS")"
-[ -n "$expected" ] || { echo "No checksum for $asset" >&2; exit 1; }
-if command -v sha256sum >/dev/null 2>&1; then
-    actual="$(sha256sum "$tmp/$asset" | awk '{ print $1 }')"
-else
-    actual="$(shasum -a 256 "$tmp/$asset" | awk '{ print $1 }')"
-fi
-[ "$actual" = "$expected" ] || { echo "Checksum verification failed" >&2; exit 1; }
+verify_download "$asset"
 
 tar -xzf "$tmp/$asset" -C "$tmp"
 install -d -m 0755 /usr/local/bin
@@ -105,6 +161,15 @@ mv -f /usr/local/bin/ssh-key-sync-client.new /usr/local/bin/ssh-key-sync-client
 
 echo "Installed /usr/local/bin/ssh-key-sync-client"
 echo "Existing /etc/ssh-key-sync configuration has been preserved."
+
+use_systemd=0
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    use_systemd=1
+fi
+
+if [ "$enable_auto_update" -eq 1 ]; then
+    install_client_auto_update
+fi
 
 if [ -z "$server_url" ]; then
     exit 0
@@ -142,11 +207,6 @@ install -m 0644 "$tmp/signing.pub" /etc/ssh-key-sync/signing.pub
     echo "allow_empty = false"
 } > /etc/ssh-key-sync/client.toml
 chmod 0600 /etc/ssh-key-sync/client.toml
-
-use_systemd=0
-if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    use_systemd=1
-fi
 
 if [ "$use_systemd" -eq 1 ] && { [ "$enable_timer" -eq 1 ] || [ -n "$enroll_name" ]; }; then
     download "$base/ssh-key-sync-client.service" "$tmp/ssh-key-sync-client.service"

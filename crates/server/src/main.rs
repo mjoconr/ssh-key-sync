@@ -74,6 +74,17 @@ enum Command {
         #[command(subcommand)]
         command: KeyCommand,
     },
+    /// Create an atomic snapshot of enrollment and token state.
+    Backup {
+        /// Directory receiving timestamped database snapshots.
+        #[arg(long, default_value = "/var/lib/ssh-key-sync/backups")]
+        output_directory: PathBuf,
+        /// Number of matching snapshots to retain.
+        #[arg(long, default_value_t = 14)]
+        retain: usize,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
     /// Open the local administration terminal UI.
     Tui {
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
@@ -475,8 +486,55 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             println!("configuration updated");
         }
+        Command::Backup {
+            output_directory,
+            retain,
+            config,
+        } => {
+            if retain == 0 {
+                return Err("--retain must be at least 1".into());
+            }
+            let config = Config::load(config)?;
+            let state = open_state(&config)?;
+            std::fs::create_dir_all(&output_directory)?;
+            let output = output_directory.join(format!("state-{}.db", unix_now()));
+            let mut temporary = tempfile::NamedTempFile::new_in(&output_directory)?;
+            temporary
+                .as_file()
+                .set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
+            state.backup_to(temporary.path())?;
+            temporary.as_file_mut().sync_all()?;
+            temporary.persist(&output)?;
+            prune_backups(&output_directory, retain)?;
+            println!("{}", output.display());
+        }
         Command::Tui { config } => tui::run(config)?,
         Command::Serve { config } => run(config).await?,
+    }
+    Ok(())
+}
+
+fn prune_backups(
+    directory: &std::path::Path,
+    retain: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut backups = std::fs::read_dir(directory)?
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_file())
+                && entry.file_name().to_str().is_some_and(|name| {
+                    name.starts_with("state-")
+                        && std::path::Path::new(name)
+                            .extension()
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("db"))
+                })
+        })
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    backups.sort();
+    backups.reverse();
+    for path in backups.into_iter().skip(retain) {
+        std::fs::remove_file(path)?;
     }
     Ok(())
 }

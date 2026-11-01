@@ -1,0 +1,7 @@
+[Unit]
+Description=Reboot after operating-system updates when required
+ConditionPathExists=/run/reboot-required
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/shutdown -r +5 "Scheduled reboot after operating-system updates"

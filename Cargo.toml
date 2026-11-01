@@ -7,7 +7,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.4.6"
+version = "0.4.7"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -27,7 +27,7 @@ todo = "warn"
 unwrap_used = "warn"
 
 [workspace.dependencies]
-ssh-key-sync-core = { version = "0.4.6", path = "crates/core" }
+ssh-key-sync-core = { version = "0.4.7", path = "crates/core" }
 base64 = "0.22"
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 ipnet = { version = "2.12", features = ["serde"] }
@@ -47,7 +47,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 fs2 = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tempfile = "3.27"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["backup", "bundled"] }
 if-addrs = "0.15"
 ratatui = "0.30"
 crossterm = "0.29"

@@ -7,7 +7,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -27,7 +27,7 @@ todo = "warn"
 unwrap_used = "warn"
 
 [workspace.dependencies]
-ssh-key-sync-core = { version = "0.4.2", path = "crates/core" }
+ssh-key-sync-core = { version = "0.4.3", path = "crates/core" }
 base64 = "0.22"
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 ipnet = { version = "2.12", features = ["serde"] }

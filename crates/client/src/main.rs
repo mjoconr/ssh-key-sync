@@ -559,19 +559,26 @@ fn update_sshd_config(original: &str, directive: &str) -> String {
 }
 
 fn reload_sshd() -> Result<(), Box<dyn std::error::Error>> {
-    let reloaded = ProcessCommand::new("systemctl")
-        .args(["reload", "ssh.service"])
-        .status()
-        .is_ok_and(|status| status.success())
-        || ProcessCommand::new("systemctl")
-            .args(["reload", "sshd.service"])
+    let attempts: &[(&str, &[&str])] = &[
+        ("systemctl", &["reload", "ssh.service"]),
+        ("systemctl", &["reload", "sshd.service"]),
+        ("service", &["ssh", "reload"]),
+        ("service", &["sshd", "reload"]),
+        ("/etc/init.d/ssh", &["reload"]),
+        ("/etc/init.d/sshd", &["reload"]),
+        ("/etc/init.d/ssh", &["restart"]),
+        ("/etc/init.d/sshd", &["restart"]),
+    ];
+    for (program, arguments) in attempts {
+        if ProcessCommand::new(program)
+            .args(*arguments)
             .status()
-            .is_ok_and(|status| status.success());
-    if reloaded {
-        Ok(())
-    } else {
-        Err("SSH service reload failed; previous configuration restored".into())
+            .is_ok_and(|status| status.success())
+        {
+            return Ok(());
+        }
     }
+    Err("SSH service reload failed; previous configuration restored".into())
 }
 
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::Error>> {

@@ -1,97 +1,77 @@
 # SSH Key Sync
 
-Rust replacements for the legacy SSH public-key distribution service and client.
+SSH Key Sync distributes approved OpenSSH public keys to independently managed
+machines. Machines pull signed key sets; the service does not push commands or
+configuration.
 
-The project is currently at the design and scaffolding stage. No command shown
-in the design documentation is considered available until it is implemented and
-listed here.
+## Features
 
-Implemented in the first milestone:
+- Public groups and token-protected groups.
+- CIDR-based group selection for the compatibility API.
+- Ed25519-signed native responses bound to a client nonce.
+- Static Linux client supporting old and current OpenSSH installations.
+- Atomic `authorized_keys` replacement with empty-response protection.
+- Separate managed and existing authorization files.
+- Safe `sshd` changes with validation, reload, and rollback.
+- systemd timer deployment.
 
-- Validated TOML server/client configuration.
-- Deterministic CIDR and restricted-token group selection.
-- Ed25519-signed native responses with nonce and expiry validation.
-- Public `/v1/keys/public`, restricted `/v1/keys`, and legacy `/xmlrpc/` routes.
-- Portable HTTPS client with atomic `authorized_keys` replacement.
-- `inspect-sshd`, key/token generation, and configuration validation commands.
+## Status
 
-Not yet implemented: enrollment approval, `sshd` configuration apply/rollback,
-systemd installation automation, self-upgrade, and the optional UI.
+Version `0.1.x` provides key retrieval and installation. Enrollment approval,
+signed client self-updates, and a web interface are not implemented yet.
 
-SSH Key Sync is pull-only. It does not push commands, deploy configuration, or
-require a central orchestration service. Each machine is installed individually
-and remains responsible for its own schedule, network policy, and rollback.
-
-## Repository layout
-
-- `crates/core` contains protocol types and shared key, group, and CIDR logic.
-- `crates/server` builds the key-selection service.
-- `crates/client` builds the portable client installed on target machines.
-
-The client and server are separate binaries and release artifacts, but live in
-one repository so that protocol changes and compatibility tests remain in sync.
-
-The legacy XML-RPC endpoint is a compatibility interface, not the architectural
-name of the project. New clients should use the native versioned protocol.
-
-## Documentation
-
-- [Architecture](docs/architecture.md) describes components and trust boundaries.
-- [Detailed design](docs/detail-design.md) defines protocols, modules, and errors.
-- [Implementation plan](docs/implementation-plan.md) lists milestones and gates.
-- [Development rules](docs/development.md) defines Rust and repository standards.
-- [Security controls](docs/security.md) defines the threat model and invariants.
-- [GitHub security setup](docs/github-security.md) tracks repository controls.
-- [Contributing](CONTRIBUTING.md) describes the required local checks.
-
-## Public repository policy
-
-This repository is intended to remain safe to publish.
-
-- Never commit credentials, tokens, private keys, certificates, or real client
-  configuration.
-- Keep production hostnames, addresses, group mappings, and machine names in
-  deployment-managed configuration, not in this repository.
-- Use documentation ranges such as `192.0.2.0/24` and `2001:db8::/32` in
-  examples.
-- Use generated, non-personal test fixtures for SSH public keys.
-- Report vulnerabilities through GitHub's private security advisory feature.
-
-Run `scripts/check-public-tree.sh` before the first push and after adding
-fixtures or deployment files.
-
-## Development run
-
-Generate a signing key and a token, copy
-[`examples/server.toml`](examples/server.toml), then run:
+## Install
 
 ```sh
-cargo run -p ssh-key-sync-server -- generate-keys --output .local
-cargo run -p ssh-key-sync-server -- check-config --config .local/server.toml
-cargo run -p ssh-key-sync-server -- serve --config .local/server.toml
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh |
+  sudo sh
 ```
 
-Client configuration is illustrated by
-[`examples/client.toml`](examples/client.toml). Run `sync --dry-run` before a
-real installation.
+The installer verifies `SHA256SUMS` and replaces only the client binary.
+Configuration under `/etc/ssh-key-sync` is preserved.
 
-Run the disposable Linux integration test with:
+## Server
 
 ```sh
+ssh-key-sync-server generate-keys --output /etc/ssh-key-sync
+ssh-key-sync-server check-config --config /etc/ssh-key-sync/server.toml
+ssh-key-sync-server serve --config /etc/ssh-key-sync/server.toml
+```
+
+See [server.toml](examples/server.toml) and
+[architecture.md](docs/architecture.md).
+
+## Client
+
+```sh
+ssh-key-sync-client --config /etc/ssh-key-sync/client.toml sync --dry-run
+ssh-key-sync-client --config /etc/ssh-key-sync/client.toml sync
+```
+
+Preview and apply `sshd` changes:
+
+```sh
+ssh-key-sync-client --config /etc/ssh-key-sync/client.toml configure-sshd
+ssh-key-sync-client --config /etc/ssh-key-sync/client.toml configure-sshd --apply
+```
+
+## Legacy XML-RPC
+
+`POST /xmlrpc/` implements `ssh.getKeys` for existing clients. It uses the
+server-observed client address and configured CIDR rules.
+
+## Development
+
+```sh
+cargo fmt --all -- --check
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets -- -D warnings
 scripts/docker-test.sh
 ```
 
-Install the released static client with:
+See [development.md](docs/development.md) and [security.md](docs/security.md).
 
-```sh
-curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh | sudo sh
-```
+## License
 
-For the repository's current private visibility, authenticate with `GH_TOKEN`.
-The installer verifies the release checksum and preserves existing
-`/etc/ssh-key-sync` configuration during upgrades.
-
-No open-source license has been selected yet. The repository should remain
-private until the owner chooses a license and reviews all release tooling.
-
-
+MIT

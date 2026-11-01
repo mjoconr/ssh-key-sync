@@ -1,118 +1,45 @@
-# Development Rules
+# Development
 
-These rules apply to all code, tests, scripts, documentation, and release
-tooling.
+Rust 2024 is built with the toolchain pinned in `rust-toolchain.toml`.
 
-## Reference standards
-
-The project follows these external references where they apply:
-
-- [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/) for public
-  API naming, documentation, interoperability, type safety, and error behavior.
-- [Rust Style Guide](https://doc.rust-lang.org/style-guide/) and `rustfmt` for
-  source formatting.
-- [ANSSI Secure Rust Guidelines](https://anssi-fr.github.io/rust-guide/) for
-  panic resistance, integer handling, dependency review, and sensitive data
-  handling. This guide is explicitly marked unstable, so individual applied
-  practices must still be justified.
-- [The Cargo Book](https://doc.rust-lang.org/cargo/) for workspace, feature, and
-  release configuration.
-- The RustSec advisory database through `cargo-deny` for known dependency
-  vulnerabilities.
-- OpenSSH manual pages for the exact `sshd_config` and client-key behavior
-  available on supported operating systems.
-
-No reference overrides this repository's documented protocol or security
-invariants. Deviations require an architecture decision record.
-
-## Rust baseline
-
-- Edition: Rust 2024.
-- Minimum supported Rust version: 1.85 unless a reviewed change updates it.
-- Development and release toolchain: pinned in `rust-toolchain.toml`.
-- Dependencies are committed through `Cargo.lock`.
-- New dependencies require a reason in the pull request, an active maintenance
-  check, and review of their feature flags and transitive tree.
-
-## Required local checks
+## Checks
 
 ```sh
 scripts/check-public-tree.sh
 cargo fmt --all -- --check
-cargo check --workspace --locked
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 ```
 
-Run the public-tree check before every commit. It is installed as the repository
-pre-commit hook by:
+Run the Docker integration test with:
 
 ```sh
-git config core.hooksPath .githooks
+scripts/docker-test.sh
 ```
 
-Before a release, also run the dependency advisory and license policy tooling
-described in `deny.toml`. CI must enforce the same checks that are required for
-release.
+## Rust Guidelines
 
-## Code rules
+- Do not use `unsafe`.
+- Document public APIs.
+- Return errors instead of panicking in runtime paths.
+- Use typed values at parsing boundaries.
+- Bound network request sizes and durations.
+- Execute subprocesses with argument arrays, never a shell string.
+- Keep production logging free of keys, tokens, and request bodies.
+- Add a regression test for every security fix.
 
-- Unsafe Rust is forbidden at workspace level.
-- Public items have documentation comments; docs describe invariants and errors,
-  not just restate type names.
-- Production paths do not use `unwrap`, `expect`, panics, `todo!`, or
-  `unimplemented!`. Return contextual errors instead.
-- Library errors use specific error enums. Binary entry points may add context at
-  the process boundary.
-- Prefer typed domain values for normalized addresses, groups, key
-  fingerprints, protocol versions, and signed manifests.
-- Do not pass untrusted values to a shell. Execute programs with argument arrays.
-- Network operations have request-size limits and explicit timeouts.
-- File replacement is atomic and validated. Never truncate the destination in
-  place.
-- Temporary files use restrictive permissions and are created in the destination
-  directory so rename stays on one filesystem.
-- Logging defaults to metadata. Key material, request bodies, tokens, and private
-  paths are redacted unless explicitly enabled for a documented diagnostic.
-- Authentication tokens are never accepted in URLs or command-line arguments.
-  Generated tokens are displayed once and written to root-only configuration.
-- `unsafe`, direct FFI, or privileged subprocess use requires a separate design
-  review even if the workspace lint is temporarily relaxed.
+Tests use generated or non-personal keys and documentation address ranges.
 
-Tests may use `expect` to identify fixture failures, but should prefer assertion
-messages and must not hide production failures.
+## Releases
 
-## Testing rules
+Push an immutable semantic-version tag:
 
-- Unit tests cover parsing, normalization, precedence, duplicate fingerprints,
-  malformed keys, and configuration validation.
-- Property tests cover arbitrary addresses and CIDRs; a match must agree with a
-  reviewed reference implementation.
-- Golden tests lock down legacy XML-RPC bytes, escaping, ordering, and trailing
-  newline.
-- Integration tests run the server on an ephemeral loopback port.
-- Client filesystem tests use temporary directories and assert modes, atomic
-  replacement, empty-response rejection, and rollback.
-- Every security invariant in `docs/security.md` requires a regression test.
-- No test may contact production infrastructure or use real credentials.
+```sh
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+```
 
-## Command-line rules
-
-- Commands support `--help`, `--version`, `--config`, and `--dry-run` where
-  meaningful.
-- Exit status is meaningful for systemd and cron.
-- Progress goes to stderr; machine-consumable output goes to stdout.
-- Destructive or privileged actions print the exact target before changing it
-  unless `--quiet` is explicitly supported.
-
-## Public repository rules
-
-- Use reserved or generated values in tests and examples.
-- Do not add real machine names, addresses, public keys, configuration, tokens,
-  host credentials, CI secrets, signing keys, or private certificates.
-- Shell scripts are small, quoted, fail-fast, and avoid `eval`.
-- Third-party GitHub Actions are pinned to immutable commit SHAs.
-- Releases are built by CI from a signed or protected tag and have published
-  checksums and provenance.
+The release workflow builds the static x86_64 Linux client, generates
+`SHA256SUMS`, and publishes the installer and client archive.
 

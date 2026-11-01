@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 use ssh_key_sync_core::{Config, signing_key_fingerprint};
 
@@ -369,12 +369,19 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(area);
-    frame.render_widget(
+    let mut state = ListState::default();
+    state.select((!items.is_empty()).then_some(app.enrollment_index));
+    frame.render_stateful_widget(
         List::new(rows)
             .block(Block::default().title(" Requests ").borders(Borders::ALL))
-            .highlight_style(Style::default().bg(Color::DarkGray))
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            )
             .highlight_symbol("> "),
         columns[0],
+        &mut state,
     );
     let details = items.get(app.enrollment_index).map_or_else(
         || vec![Line::from("No request selected")],
@@ -415,12 +422,15 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             ))
         })
         .collect::<Vec<_>>();
-    frame.render_widget(
+    let mut state = ListState::default();
+    state.select((!items.is_empty()).then_some(app.token_index));
+    frame.render_stateful_widget(
         List::new(rows)
             .block(Block::default().title(" Tokens ").borders(Borders::ALL))
             .highlight_style(Style::default().bg(Color::DarkGray))
             .highlight_symbol("> "),
         area,
+        &mut state,
     );
 }
 
@@ -440,12 +450,15 @@ fn draw_groups(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
             ))
         })
         .collect::<Vec<_>>();
-    frame.render_widget(
+    let mut state = ListState::default();
+    state.select((!app.config.groups.is_empty()).then_some(app.group_index));
+    frame.render_stateful_widget(
         List::new(rows)
             .block(Block::default().title(" Groups ").borders(Borders::ALL))
             .highlight_style(Style::default().bg(Color::DarkGray))
             .highlight_symbol("> "),
         area,
+        &mut state,
     );
 }
 
@@ -458,7 +471,9 @@ fn draw_group_picker(frame: &mut ratatui::Frame<'_>, app: &App) {
         .map(|name| ListItem::new(name.as_str()))
         .collect::<Vec<_>>();
     frame.render_widget(Clear, area);
-    frame.render_widget(
+    let mut state = ListState::default();
+    state.select((!items.is_empty()).then_some(app.group_index));
+    frame.render_stateful_widget(
         List::new(items)
             .block(
                 Block::default()
@@ -468,6 +483,7 @@ fn draw_group_picker(frame: &mut ratatui::Frame<'_>, app: &App) {
             .highlight_style(Style::default().bg(Color::DarkGray))
             .highlight_symbol("> "),
         area,
+        &mut state,
     );
 }
 

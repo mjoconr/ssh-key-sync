@@ -59,6 +59,14 @@ token_file = "$test_root/token"
 allow_empty = false
 EOF
 
+cat > sshd-client.toml <<EOF
+schema_version = 1
+server_url = "http://127.0.0.1:18080"
+verifying_key_file = "$test_root/keys/signing.pub"
+authorized_keys_file = "/etc/ssh/authorized_keys.d/root"
+allow_empty = false
+EOF
+
 printf '%s\n' "$token" > token
 chmod 0600 token
 
@@ -82,6 +90,14 @@ grep -q 'docker-test$' public_authorized_keys
 
 ssh-key-sync-client --config restricted-client.toml sync
 grep -q 'docker-test$' restricted_authorized_keys
+
+mkdir -p /run/sshd /etc/ssh/authorized_keys.d
+ssh-key-sync-client --config sshd-client.toml configure-sshd
+test ! -e /etc/ssh/sshd_config.d/20-ssh-key-sync.conf
+ssh-key-sync-client --config sshd-client.toml configure-sshd --apply --no-reload
+sshd -T -C user=root,host=localhost,addr=127.0.0.1 \
+    | grep '^authorizedkeysfile ' \
+    | grep -F '/etc/ssh/authorized_keys.d/root'
 
 curl --fail --silent \
     --header 'Content-Type: text/xml' \

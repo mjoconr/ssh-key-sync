@@ -36,6 +36,18 @@ enum Command {
     },
     /// Print the effective `AuthorizedKeysFile` setting.
     InspectSshd,
+    /// Configure the existing and managed authorization files.
+    ConfigureSshd {
+        /// Apply the validated configuration change.
+        #[arg(long)]
+        apply: bool,
+        /// Do not reload the SSH service after applying.
+        #[arg(long)]
+        no_reload: bool,
+        /// SSH configuration drop-in path.
+        #[arg(long, default_value = "/etc/ssh/sshd_config.d/20-ssh-key-sync.conf")]
+        drop_in: PathBuf,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,6 +86,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Command::Sync { dry_run } => sync(&cli.config, dry_run).await?,
         Command::InspectSshd => inspect_sshd()?,
+        Command::ConfigureSshd {
+            apply,
+            no_reload,
+            drop_in,
+        } => configure_sshd(&cli.config, apply, no_reload, &drop_in)?,
     }
     Ok(())
 }
@@ -165,6 +182,12 @@ fn install_file(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::E
 }
 
 fn inspect_sshd() -> Result<(), Box<dyn std::error::Error>> {
+    let line = effective_authorized_keys_file()?;
+    println!("AuthorizedKeysFile {line}");
+    Ok(())
+}
+
+fn effective_authorized_keys_file() -> Result<String, Box<dyn std::error::Error>> {
     let output = ProcessCommand::new("sshd")
         .args(["-T", "-C", "user=root,host=localhost,addr=127.0.0.1"])
         .output()?;
@@ -180,7 +203,104 @@ fn inspect_sshd() -> Result<(), Box<dyn std::error::Error>> {
         .lines()
         .find(|line| line.starts_with("authorizedkeysfile "))
         .ok_or("sshd did not report authorizedkeysfile")?;
-    println!("{line}");
+    Ok(line.trim_start_matches("authorizedkeysfile ").to_owned())
+}
+
+fn configure_sshd(
+    config_path: &Path,
+    apply: bool,
+    no_reload: bool,
+    drop_in: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = ClientConfig::load(config_path)?;
+    let managed = config
+        .authorized_keys_file
+        .to_str()
+        .ok_or("managed authorized_keys path is not UTF-8")?;
+    let current = effective_authorized_keys_file()?;
+    let mut files = current
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if !files.iter().any(|file| file == managed) {
+        files.push(managed.to_owned());
+    }
+    let desired = format!("AuthorizedKeysFile {}\n", files.join(" "));
+    if current.split_whitespace().any(|file| file == managed) {
+        println!("managed file is already effective: {managed}");
+        return Ok(());
+    }
+    println!("current:   {current}");
+    println!("proposed:  {}", files.join(" "));
+    println!("drop-in:   {}", drop_in.display());
+    if !apply {
+        println!("dry run: use --apply to write and validate the configuration");
+        return Ok(());
+    }
+
+    let parent = drop_in.parent().ok_or("drop-in path has no parent")?;
+    fs::create_dir_all(parent)?;
+    let backup = drop_in.with_extension("before-ssh-key-sync");
+    let existing = fs::read(drop_in).ok();
+    if let Some(ref content) = existing {
+        fs::write(&backup, content)?;
+    }
+    atomic_write(drop_in, desired.as_bytes())?;
+
+    let validation = ProcessCommand::new("sshd").arg("-t").status()?;
+    if !validation.success() {
+        restore_drop_in(drop_in, &backup, existing.as_deref())?;
+        return Err("sshd rejected the new configuration; previous configuration restored".into());
+    }
+    let effective = effective_authorized_keys_file()?;
+    if !effective.split_whitespace().any(|file| file == managed) {
+        restore_drop_in(drop_in, &backup, existing.as_deref())?;
+        return Err("drop-in was not effective; previous configuration restored".into());
+    }
+    if !no_reload {
+        let reloaded = ProcessCommand::new("systemctl")
+            .args(["reload", "ssh.service"])
+            .status()
+            .is_ok_and(|status| status.success())
+            || ProcessCommand::new("systemctl")
+                .args(["reload", "sshd.service"])
+                .status()
+                .is_ok_and(|status| status.success());
+        if !reloaded {
+            restore_drop_in(drop_in, &backup, existing.as_deref())?;
+            return Err("SSH service reload failed; previous configuration restored".into());
+        }
+    }
+    println!("configured: {effective}");
+    Ok(())
+}
+
+fn restore_drop_in(
+    drop_in: &Path,
+    backup: &Path,
+    existing: Option<&[u8]>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match existing {
+        Some(content) => atomic_write(drop_in, content)?,
+        None => {
+            let _ = fs::remove_file(drop_in);
+        }
+    }
+    if !backup.exists() {
+        let _ = fs::remove_file(backup);
+    }
+    Ok(())
+}
+
+fn atomic_write(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let parent = path.parent().ok_or("path has no parent")?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    temporary
+        .as_file()
+        .set_permissions(fs::Permissions::from_mode(0o644))?;
+    temporary.write_all(content)?;
+    temporary.as_file_mut().sync_all()?;
+    temporary.persist(path)?;
     Ok(())
 }
 

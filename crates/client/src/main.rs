@@ -255,20 +255,14 @@ fn configure_sshd(
     let effective = effective_authorized_keys_file()?;
     if !effective.split_whitespace().any(|file| file == managed) {
         restore_drop_in(drop_in, &backup, existing.as_deref())?;
-        return Err("drop-in was not effective; previous configuration restored".into());
+        println!("drop-in is not supported; updating /etc/ssh/sshd_config");
+        configure_main_sshd(&desired, managed, no_reload)?;
+        return Ok(());
     }
     if !no_reload {
-        let reloaded = ProcessCommand::new("systemctl")
-            .args(["reload", "ssh.service"])
-            .status()
-            .is_ok_and(|status| status.success())
-            || ProcessCommand::new("systemctl")
-                .args(["reload", "sshd.service"])
-                .status()
-                .is_ok_and(|status| status.success());
-        if !reloaded {
+        if let Err(error) = reload_sshd() {
             restore_drop_in(drop_in, &backup, existing.as_deref())?;
-            return Err("SSH service reload failed; previous configuration restored".into());
+            return Err(error);
         }
     }
     println!("configured: {effective}");
@@ -290,6 +284,93 @@ fn restore_drop_in(
         let _ = fs::remove_file(backup);
     }
     Ok(())
+}
+
+fn configure_main_sshd(
+    directive: &str,
+    managed: &str,
+    no_reload: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = Path::new("/etc/ssh/sshd_config");
+    let original = fs::read_to_string(path)?;
+    let updated = update_sshd_config(&original, directive);
+    let backup = path.with_extension("before-ssh-key-sync");
+    fs::write(&backup, &original)?;
+    atomic_write(path, updated.as_bytes())?;
+    if !ProcessCommand::new("sshd").arg("-t").status()?.success() {
+        atomic_write(path, original.as_bytes())?;
+        return Err("sshd rejected the managed configuration; original restored".into());
+    }
+    let effective = effective_authorized_keys_file()?;
+    if !effective.split_whitespace().any(|file| file == managed) {
+        atomic_write(path, original.as_bytes())?;
+        return Err("managed path was not effective; original restored".into());
+    }
+    if !no_reload {
+        reload_sshd().inspect_err(|_error| {
+            let _ = atomic_write(path, original.as_bytes());
+        })?;
+    }
+    println!("configured via {}: {effective}", path.display());
+    println!("backup: {}", backup.display());
+    Ok(())
+}
+
+fn update_sshd_config(original: &str, directive: &str) -> String {
+    const BEGIN: &str = "# BEGIN ssh-key-sync";
+    const END: &str = "# END ssh-key-sync";
+    let mut lines = Vec::new();
+    let mut inside_block = false;
+    for line in original.lines() {
+        if line.trim() == BEGIN {
+            inside_block = true;
+            continue;
+        }
+        if line.trim() == END {
+            inside_block = false;
+            continue;
+        }
+        if !inside_block {
+            lines.push(line.to_owned());
+        }
+    }
+    let block = [
+        BEGIN.to_owned(),
+        directive.trim().to_owned(),
+        END.to_owned(),
+    ];
+    let insert_at = lines
+        .iter()
+        .position(|line| line.trim_start().to_ascii_lowercase().starts_with("match "))
+        .unwrap_or(lines.len());
+    let existing_directive = lines[..insert_at].iter().position(|line| {
+        let trimmed = line.trim_start().to_ascii_lowercase();
+        !trimmed.starts_with('#') && trimmed.starts_with("authorizedkeysfile ")
+    });
+    if let Some(index) = existing_directive {
+        lines.splice(index..=index, block);
+    } else {
+        lines.splice(insert_at..insert_at, block);
+    }
+    let mut output = lines.join("\n");
+    output.push('\n');
+    output
+}
+
+fn reload_sshd() -> Result<(), Box<dyn std::error::Error>> {
+    let reloaded = ProcessCommand::new("systemctl")
+        .args(["reload", "ssh.service"])
+        .status()
+        .is_ok_and(|status| status.success())
+        || ProcessCommand::new("systemctl")
+            .args(["reload", "sshd.service"])
+            .status()
+            .is_ok_and(|status| status.success());
+    if reloaded {
+        Ok(())
+    } else {
+        Err("SSH service reload failed; previous configuration restored".into())
+    }
 }
 
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
@@ -315,5 +396,18 @@ mod tests {
         let path = dir.path().join("authorized_keys");
         install_file(&path, b"").unwrap();
         assert_eq!(fs::read(path).unwrap(), b"");
+    }
+
+    #[test]
+    fn inserts_managed_line_before_match_blocks() {
+        let original = "Port 22\nMatch User test\n  PasswordAuthentication no\n";
+        let updated = update_sshd_config(
+            original,
+            "AuthorizedKeysFile .ssh/authorized_keys /managed/root",
+        );
+        assert!(updated.contains(
+            "# BEGIN ssh-key-sync\nAuthorizedKeysFile .ssh/authorized_keys /managed/root"
+        ));
+        assert!(updated.find("ssh-key-sync").unwrap() < updated.find("Match User").unwrap());
     }
 }

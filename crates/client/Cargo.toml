@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 clap.workspace = true
 fs2.workspace = true
-get_if_addrs.workspace = true
+if-addrs.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

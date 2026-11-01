@@ -149,7 +149,7 @@ async fn enroll(config_path: &Path, name: &str) -> Result<(), Box<dyn std::error
         .ok_or("enrollment requires token_file in the client configuration")?;
     let secret = new_token();
     let token = new_token();
-    let local_addresses = get_if_addrs::get_if_addrs()?
+    let local_addresses = if_addrs::get_if_addrs()?
         .into_iter()
         .filter(|interface| !interface.is_loopback())
         .take(32)

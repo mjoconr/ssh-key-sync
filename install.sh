@@ -142,13 +142,12 @@ install -m 0644 "$tmp/signing.pub" /etc/ssh-key-sync/signing.pub
 } > /etc/ssh-key-sync/client.toml
 chmod 0600 /etc/ssh-key-sync/client.toml
 
-if [ "$apply_ssh" -eq 1 ]; then
-    /usr/local/bin/ssh-key-sync-client \
-        --config /etc/ssh-key-sync/client.toml \
-        configure-sshd --apply
-fi
-
 if [ -n "$enroll_name" ]; then
+    if [ "$apply_ssh" -eq 1 ]; then
+        /usr/local/bin/ssh-key-sync-client \
+            --config /etc/ssh-key-sync/client.toml \
+            configure-sshd --apply
+    fi
     /usr/local/bin/ssh-key-sync-client \
         --config /etc/ssh-key-sync/client.toml \
         enroll --name "$enroll_name"
@@ -159,6 +158,12 @@ fi
 
 /usr/local/bin/ssh-key-sync-client \
     --config /etc/ssh-key-sync/client.toml sync --dry-run
+
+if [ "$apply_ssh" -eq 1 ]; then
+    /usr/local/bin/ssh-key-sync-client \
+        --config /etc/ssh-key-sync/client.toml \
+        configure-sshd --apply
+fi
 
 if [ "$enable_timer" -eq 1 ]; then
     download "$base/ssh-key-sync-client.service" "$tmp/ssh-key-sync-client.service"

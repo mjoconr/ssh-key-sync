@@ -48,5 +48,5 @@ fs2 = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tempfile = "3.27"
 rusqlite = { version = "0.41", features = ["bundled"] }
-get_if_addrs = "0.5"
+if-addrs = "0.15"
 

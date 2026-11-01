@@ -142,7 +142,12 @@ install -m 0644 "$tmp/signing.pub" /etc/ssh-key-sync/signing.pub
 } > /etc/ssh-key-sync/client.toml
 chmod 0600 /etc/ssh-key-sync/client.toml
 
-if [ "$enable_timer" -eq 1 ] || [ -n "$enroll_name" ]; then
+use_systemd=0
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    use_systemd=1
+fi
+
+if [ "$use_systemd" -eq 1 ] && { [ "$enable_timer" -eq 1 ] || [ -n "$enroll_name" ]; }; then
     download "$base/ssh-key-sync-client.service" "$tmp/ssh-key-sync-client.service"
     download "$base/ssh-key-sync-client.timer" "$tmp/ssh-key-sync-client.timer"
     for file in ssh-key-sync-client.service ssh-key-sync-client.timer; do
@@ -166,8 +171,13 @@ if [ -n "$enroll_name" ]; then
         enroll --name "$enroll_name"
     echo "Wait for administrator approval, then run:"
     echo "  ssh-key-sync-client --config /etc/ssh-key-sync/client.toml enrollment-status --wait"
-    echo "Then enable the timer:"
-    echo "  systemctl enable --now ssh-key-sync-client.timer"
+    if [ "$use_systemd" -eq 1 ]; then
+        echo "Then enable the timer:"
+        echo "  systemctl enable --now ssh-key-sync-client.timer"
+    else
+        echo "Systemd is unavailable; after approval install cron with:"
+        echo "  ssh-key-sync-client --config /etc/ssh-key-sync/client.toml install-cron"
+    fi
     exit 0
 fi
 
@@ -181,6 +191,12 @@ if [ "$apply_ssh" -eq 1 ]; then
 fi
 
 if [ "$enable_timer" -eq 1 ]; then
-    systemctl enable --now ssh-key-sync-client.timer
+    if [ "$use_systemd" -eq 1 ]; then
+        systemctl enable --now ssh-key-sync-client.timer
+    else
+        /usr/local/bin/ssh-key-sync-client \
+            --config /etc/ssh-key-sync/client.toml \
+            install-cron
+    fi
 fi
 

@@ -113,6 +113,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                     if let Some(group) = groups.get(app.group_index) {
                         if app.state.approve(&request_id, group)? {
                             app.message = format!("approved {request_id} into {group}");
+                            app.enrollment_index = 0;
                             app.overlay = Overlay::None;
                         }
                     }
@@ -124,6 +125,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
             KeyCode::Char('y') => {
                 if app.state.deny(request_id)? {
                     app.message = format!("denied {request_id}");
+                    app.enrollment_index = 0;
                 }
                 app.overlay = Overlay::None;
             }
@@ -134,6 +136,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
             KeyCode::Char('y') => {
                 if app.state.revoke_token(token_id)? {
                     app.message = format!("revoked {token_id}");
+                    app.token_index = 0;
                 }
                 app.overlay = Overlay::None;
             }
@@ -144,6 +147,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
             KeyCode::Char('y') => {
                 if app.state.hide_enrollment(request_id)? {
                     app.message = format!("hid request {request_id}");
+                    app.enrollment_index = 0;
                 }
                 app.overlay = Overlay::None;
             }
@@ -154,6 +158,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
             KeyCode::Char('y') => {
                 if app.state.retire_enrollment(request_id)? {
                     app.message = format!("retired request and token {request_id}");
+                    app.enrollment_index = 0;
                 }
                 app.overlay = Overlay::None;
             }
@@ -164,6 +169,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
             KeyCode::Char('y') => {
                 if app.state.hide_token(token_id)? {
                     app.message = format!("hid token {token_id}");
+                    app.token_index = 0;
                 }
                 app.overlay = Overlay::None;
             }
@@ -316,12 +322,15 @@ impl App {
     }
 
     fn selected_pending_enrollment(&self) -> Option<crate::state::Enrollment> {
-        self.state
+        let pending = self
+            .state
             .list_enrollments()
             .ok()?
             .into_iter()
             .filter(|item| item.status == "pending")
-            .nth(self.enrollment_index)
+            .collect::<Vec<_>>();
+        let index = self.enrollment_index.min(pending.len().saturating_sub(1));
+        pending.into_iter().nth(index)
     }
 }
 
@@ -444,7 +453,8 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(area);
     let mut state = ListState::default();
-    state.select((!items.is_empty()).then_some(app.enrollment_index));
+    let selected = app.enrollment_index.min(items.len().saturating_sub(1));
+    state.select((!items.is_empty()).then_some(selected));
     frame.render_stateful_widget(
         List::new(rows)
             .block(Block::default().title(" Requests ").borders(Borders::ALL))
@@ -457,7 +467,7 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         columns[0],
         &mut state,
     );
-    let details = items.get(app.enrollment_index).map_or_else(
+    let details = items.get(selected).map_or_else(
         || vec![Line::from("No request selected")],
         |item| {
             vec![
@@ -497,7 +507,8 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         })
         .collect::<Vec<_>>();
     let mut state = ListState::default();
-    state.select((!items.is_empty()).then_some(app.token_index));
+    let selected = app.token_index.min(items.len().saturating_sub(1));
+    state.select((!items.is_empty()).then_some(selected));
     frame.render_stateful_widget(
         List::new(rows)
             .block(Block::default().title(" Tokens ").borders(Borders::ALL))

@@ -491,7 +491,7 @@ fn update_sshd_config(original: &str, directive: &str) -> String {
         .unwrap_or(lines.len());
     let existing_directive = lines[..insert_at].iter().position(|line| {
         let trimmed = line.trim_start().to_ascii_lowercase();
-        !trimmed.starts_with('#') && trimmed.starts_with("authorizedkeysfile ")
+        !trimmed.starts_with('#') && trimmed.split_whitespace().next() == Some("authorizedkeysfile")
     });
     if let Some(index) = existing_directive {
         lines.splice(index..=index, block);
@@ -563,5 +563,17 @@ mod tests {
             "# BEGIN ssh-key-sync\nAuthorizedKeysFile .ssh/authorized_keys /managed/root"
         ));
         assert!(updated.find("ssh-key-sync").unwrap() < updated.find("Match User").unwrap());
+    }
+
+    #[test]
+    fn replaces_tab_separated_authorized_keys_directive() {
+        let original = "Port 22\nAuthorizedKeysFile\t.ssh/authorized_keys\n";
+        let updated = update_sshd_config(
+            original,
+            "AuthorizedKeysFile .ssh/authorized_keys /managed/root",
+        );
+        assert!(updated.contains("AuthorizedKeysFile .ssh/authorized_keys /managed/root"));
+        assert!(!updated.contains("AuthorizedKeysFile\t.ssh/authorized_keys"));
+        assert_eq!(updated.matches("AuthorizedKeysFile").count(), 1);
     }
 }

@@ -50,8 +50,9 @@ git tag -a v0.2.0 -m "v0.2.0"
 git push origin v0.2.0
 ```
 
-The release workflow builds static x86-64 and ARM64 Linux clients and servers,
-generates `SHA256SUMS`, and publishes both installers and all archives. Every
-release is explicitly marked latest so out-of-order background jobs cannot
-change which version `/releases/latest/` resolves to.
+The release workflow builds static x86-64 and ARM64 Linux clients and servers
+on matching native GitHub runners, generates `SHA256SUMS`, and publishes both
+installers and all archives. Every release is explicitly marked latest so
+out-of-order background jobs cannot change which version `/releases/latest/`
+resolves to.
 

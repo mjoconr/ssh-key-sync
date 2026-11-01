@@ -36,7 +36,8 @@ approved fixtures.
 
 - Add configuration validation CLI and safe reload.
 - Add group and machine token creation, rotation, and revocation.
-- Add expiring enrollment requests, rate limits, and approve/deny audit records.
+- Add expiring enrollment requests, bounded interface-address metadata, rate
+  limits, and approve/deny audit records.
 - Add loopback-only admin API and enrollment CLI.
 - Implement the native signed response endpoint.
 - Implement the legacy `/xmlrpc/` endpoint.

@@ -52,6 +52,7 @@ limit which public sets are exposed, so they remain separately configurable.
 - Never approve enrollment automatically.
 - Never let an enrollment request retrieve keys before approval.
 - Never treat an enrollment hostname or source address as verified identity.
+- Never trust or authorize a client-reported local interface address.
 - Never store a plaintext enrollment secret or issued token.
 - Never modify Proxmox's `/root/.ssh/authorized_keys`.
 - Never reload `sshd` with a configuration that failed `sshd -t`.
@@ -77,6 +78,8 @@ limit which public sets are exposed, so they remain separately configurable.
   never as a fallback after failed CIDR or token authentication.
 - Enrollment requests have high-entropy secrets, short expiries, bounded queues,
   and rate limits.
+- Enrollment interface metadata is bounded, retained only for the documented
+  audit period, and never included in public logs or release artifacts.
 - Approval and denial decisions are audited with the administrator, request
   metadata, selected group, token identifier, and timestamp.
 - Configuration writes are serialized, validated, backed up, and atomically

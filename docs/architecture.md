@@ -90,11 +90,12 @@ Enrollment is an approval workflow, not automatic trust:
 
 1. The operator runs `ssh-key-sync-client enroll` on a new machine.
 2. The client creates a high-entropy enrollment secret and sends a bounded
-   request containing its suggested name, hostname claim, client version, and
-   the digest of that secret.
+   request containing its suggested name, hostname claim, non-loopback interface
+   addresses, client version, and the digest of that secret.
 3. The server records a pending request with an expiry time and displays a short
-   request code. A hostname claim and observed source address are metadata only;
-   neither grants access.
+   request code. The server also records the source address it observes after any
+   NAT or trusted proxy. Hostname, observed source address, and client-reported
+   local addresses are metadata only; none grants access.
 4. An administrator reviews the request through the loopback-only CLI or UI.
    The administrator may approve it into a group, attach additional machine
    restrictions, or deny it.
@@ -106,6 +107,26 @@ Enrollment is an approval workflow, not automatic trust:
 Pending requests expire automatically and cannot retrieve keys. The queue is
 bounded and rate-limited to limit spam. The administrator should verify the
 request code out-of-band when the machine or network path is not already known.
+
+The administrator view displays two separately labelled address groups:
+
+```text
+Observed by server:        203.0.113.44
+Reported by client:
+  ens18                     192.0.2.11/24
+  ens19                     198.51.100.7/24
+```
+
+The client enumerates non-loopback interface addresses and should omit
+unspecified, multicast, link-local, and transient container interfaces by
+default. Interface names and prefix lengths are retained so the administrator
+can distinguish host, VPN, and container networks. Address collection is bounded
+to prevent oversized requests.
+
+Client-reported addresses help the administrator recognize a machine and suggest
+a CIDR restriction. They are never used as an authentication or authorization
+decision, because an arbitrary request can claim any address. Verification still
+requires out-of-band confirmation or the approved token after enrollment.
 
 An approval targets an existing group or an explicitly created dedicated group.
 Machine records may reference one or more groups and optional source CIDRs.
@@ -123,6 +144,8 @@ Example administrative commands:
 ssh-key-sync-server enrollment list
 ssh-key-sync-server enrollment show <request-id>
 ssh-key-sync-server enrollment approve <request-id> --group displays
+ssh-key-sync-server enrollment approve <request-id> --group displays \
+  --allow-cidr 192.0.2.0/24
 ssh-key-sync-server enrollment deny <request-id>
 ```
 

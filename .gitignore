@@ -1,0 +1,38 @@
+/target/
+/dist/
+/releases/
+*.swp
+*.tmp
+*.log
+.DS_Store
+
+# Credentials and private keys
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.ovpn
+id_rsa
+id_rsa.*
+id_ecdsa
+id_ecdsa.*
+id_ed25519
+id_ed25519.*
+
+# Machine-specific configuration
+*.local.toml
+*.local.yaml
+*.local.yml
+secrets/
+private/
+deploy/local/
+
+# Editor state
+.idea/
+.vscode/
+

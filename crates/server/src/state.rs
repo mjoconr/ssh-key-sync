@@ -186,6 +186,17 @@ impl State {
             .collect()
     }
 
+    pub(crate) fn enrollment_by_id(&self, id: &str) -> rusqlite::Result<Option<Enrollment>> {
+        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        db.query_row(
+            "SELECT id,code,name,hostname,local_addresses,source_ip,status,group_name,created_at,expires_at
+             FROM enrollments WHERE id=?1",
+            [id],
+            Self::map_enrollment,
+        )
+        .optional()
+    }
+
     pub(crate) fn revoke_token(&self, id: &str) -> rusqlite::Result<bool> {
         let now = unix_now();
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;

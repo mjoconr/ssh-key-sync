@@ -23,16 +23,20 @@ jobs:
       - name: Package release assets
         run: |
           asset="ssh-key-sync-client-x86_64-unknown-linux-musl"
+          server_asset="ssh-key-sync-server-x86_64-unknown-linux-musl"
           mkdir -p release
           mkdir -p release/package
           cp .local/linux-bin/ssh-key-sync-client-musl release/package/ssh-key-sync-client
+          cp .local/linux-bin/ssh-key-sync-server-musl release/package/ssh-key-sync-server
           cp install.sh release/install.sh
           cp deploy/ssh-key-sync-client.service release/
           cp deploy/ssh-key-sync-client.timer release/
+          cp deploy/ssh-key-sync-server.service release/
           tar -C release/package -czf "release/$asset.tar.gz" ssh-key-sync-client
+          tar -C release/package -czf "release/$server_asset.tar.gz" ssh-key-sync-server
           rm -rf release/package
           cd release
-          sha256sum ./*.tar.gz ./ssh-key-sync-client.service ./ssh-key-sync-client.timer |
+          sha256sum ./*.tar.gz ./ssh-key-sync-client.service ./ssh-key-sync-client.timer ./ssh-key-sync-server.service |
             sed 's#  \./#  #' > SHA256SUMS
 
       - name: Publish release

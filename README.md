@@ -75,6 +75,12 @@ Client configuration is illustrated by
 [`examples/client.toml`](examples/client.toml). Run `sync --dry-run` before a
 real installation.
 
+Run the disposable Linux integration test with:
+
+```sh
+scripts/docker-test.sh
+```
+
 No open-source license has been selected yet. The repository should remain
 private until the owner chooses a license and reviews all release tooling.
 

@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+test_root="$(mktemp -d)"
+server_pid=""
+
+cleanup() {
+    if [[ -n "$server_pid" ]]; then
+        kill "$server_pid" 2>/dev/null || true
+        wait "$server_pid" 2>/dev/null || true
+    fi
+    rm -rf "$test_root"
+}
+trap cleanup EXIT
+
+cd "$test_root"
+ssh-key-sync-server generate-keys --output keys
+
+token="docker-test-token"
+token_digest="sha256:$(printf '%s' "$token" | sha256sum | cut -d' ' -f1)"
+
+cat > server.toml <<EOF
+schema_version = 1
+listen = "127.0.0.1:18080"
+signing_key_file = "$test_root/keys/signing.key"
+default_group = "public"
+
+[groups.public]
+visibility = "public"
+
+[groups.restricted]
+visibility = "private"
+
+[keys.example]
+groups = ["public", "restricted"]
+keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti docker-test"]
+
+[[tokens]]
+id = "docker-test"
+group = "restricted"
+digest = "$token_digest"
+EOF
+
+cat > public-client.toml <<EOF
+schema_version = 1
+server_url = "http://127.0.0.1:18080"
+verifying_key_file = "$test_root/keys/signing.pub"
+authorized_keys_file = "$test_root/public_authorized_keys"
+allow_empty = false
+EOF
+
+cat > restricted-client.toml <<EOF
+schema_version = 1
+server_url = "http://127.0.0.1:18080"
+verifying_key_file = "$test_root/keys/signing.pub"
+authorized_keys_file = "$test_root/restricted_authorized_keys"
+token_file = "$test_root/token"
+allow_empty = false
+EOF
+
+printf '%s\n' "$token" > token
+chmod 0600 token
+
+ssh-key-sync-server check-config --config server.toml
+ssh-key-sync-server serve --config server.toml >server.log 2>&1 &
+server_pid=$!
+
+for _ in $(seq 1 30); do
+    if curl --fail --silent http://127.0.0.1:18080/v1/health >/dev/null; then
+        break
+    fi
+    sleep 0.2
+done
+curl --fail --silent http://127.0.0.1:18080/v1/health | grep -qx 'ok'
+
+ssh-key-sync-client --config public-client.toml sync --dry-run
+test ! -e public_authorized_keys
+ssh-key-sync-client --config public-client.toml sync
+test "$(stat -c '%a' public_authorized_keys)" = "600"
+grep -q 'docker-test$' public_authorized_keys
+
+ssh-key-sync-client --config restricted-client.toml sync
+grep -q 'docker-test$' restricted_authorized_keys
+
+curl --fail --silent \
+    --header 'Content-Type: text/xml' \
+    --data-binary '<?xml version="1.0"?><methodCall><methodName>ssh.getKeys</methodName><params><param><value><string>localhost</string></value></param></params></methodCall>' \
+    http://127.0.0.1:18080/xmlrpc/ \
+    | grep -q 'docker-test'
+
+ssh-key-sync-server generate-keys --output wrong-keys
+sed "s#keys/signing.pub#wrong-keys/signing.pub#" public-client.toml > bad-client.toml
+if ssh-key-sync-client --config bad-client.toml sync --dry-run; then
+    echo "invalid signature was accepted" >&2
+    exit 1
+fi
+
+echo "Docker integration test passed."
+

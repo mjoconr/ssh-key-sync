@@ -13,6 +13,10 @@ report() {
 }
 
 while IFS= read -r file; do
+    if git check-ignore -q "$file" 2>/dev/null; then
+        continue
+    fi
+
     case "$file" in
         ./.env.example)
             continue

@@ -20,7 +20,8 @@ system.
 ## Phase 1: core domain and compatibility
 
 - Define validated types for groups, CIDRs, public keys, fingerprints, protocol
-  versions, machine records, token digests, and response documents.
+  versions, machine records, group and machine token digests, and response
+  documents.
 - Model anonymous signed groups separately from authenticated machine groups.
 - Implement the native configuration parser with reserved documentation values.
 - Implement a legacy configuration importer.
@@ -34,7 +35,7 @@ approved fixtures.
 ## Phase 2: server
 
 - Add configuration validation CLI and safe reload.
-- Add machine token creation, rotation, and revocation.
+- Add group and machine token creation, rotation, and revocation.
 - Implement the native signed response endpoint.
 - Implement the legacy `/xmlrpc/` endpoint.
 - Add request-size, timeout, trusted-proxy, and rate-limit controls.

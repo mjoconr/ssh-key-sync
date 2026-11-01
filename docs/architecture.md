@@ -62,16 +62,23 @@ CIDR-to-group rules, machine records, and token hashes. There is no
 administration database in the initial design. Changes are validated before an
 atomic replace and are reloaded only when valid.
 
-Machine records are created one-to-one with a CLI command. The generated token
-is displayed once and stored with mode `0600` on that machine. The server stores
-only a digest of the token. Tokens can be rotated or revoked without changing
-public keys or affecting other machines.
+Tokens may be scoped to a group or to one machine:
+
+- A group token is shared by all machines that should receive the same key set.
+  It is the simplest option for independently managed systems with no need for
+  per-machine audit or revocation.
+- A machine token identifies one host and is useful when machines need different
+  groups or when individual revocation and audit are required.
+
+The generated token is displayed once and stored with mode `0600` on each client.
+The server stores only a digest. Rotating a group token affects every client in
+that group; rotating a machine token affects only that machine.
 
 The client token belongs in root-only client configuration and is sent only in
 the HTTP `Authorization` header. It is never accepted in a URL or query string.
 
-Machine authentication is not intended to make public keys confidential. A
-machine token selects and audits a key group. If the operator intentionally
+Token authentication is not intended to make public keys confidential. A token
+selects a key group and optionally identifies a machine. If the operator intentionally
 exposes one signed default group to every client, native clients may use that
 group without a token. Anonymous access must be explicit configuration; it must
 not be an accidental fallback when token authentication or a CIDR match fails.

@@ -64,10 +64,11 @@ limit which public sets are exposed, so they remain separately configurable.
   size limits.
 - CIDRs are validated at load time. Equal-precedence conflicts make the
   configuration invalid.
-- Native authentication maps a high-entropy per-machine token to one machine
+- Native authentication maps a high-entropy group or machine token to a token
   record. Only a digest is stored server-side, and comparisons use constant-time
   code.
-- Machine tokens can be rotated and revoked individually.
+- Group tokens are rotated as a group. Machine tokens can be rotated and revoked
+  individually.
 - An anonymous public group is allowed only through explicit configuration and
   never as a fallback after failed CIDR or token authentication.
 - Configuration writes are serialized, validated, backed up, and atomically
@@ -165,8 +166,9 @@ challenge-response proof implemented by both client and server.
 
 - Source CIDR matching selects a group but does not independently authenticate a
   machine.
-- A stolen native machine token can retrieve that machine's public key set until
-  the token is revoked.
+- A stolen native token can retrieve its configured public key set until the
+  token is revoked. This is primarily a group-mapping exposure because SSH public
+  keys are not confidential.
 - A compromised trusted network can obtain that network's public key set.
 - A compromised signing environment can authorize malicious client updates.
 - Anyone with root on a managed machine can modify its installed keys and client.

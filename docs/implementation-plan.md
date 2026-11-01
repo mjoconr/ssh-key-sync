@@ -21,6 +21,7 @@ system.
 
 - Define validated types for groups, CIDRs, public keys, fingerprints, protocol
   versions, machine records, token digests, and response documents.
+- Model anonymous signed groups separately from authenticated machine groups.
 - Implement the native configuration parser with reserved documentation values.
 - Implement a legacy configuration importer.
 - Implement most-specific CIDR matching and deterministic key ordering.

@@ -21,6 +21,11 @@
 Public SSH keys are not confidential, but their integrity is critical. An
 attacker who can substitute a response or update can obtain root access.
 
+The principal security objective is therefore not to hide the key material. It
+is to ensure that a machine writes exactly the operator-approved key set. Group
+mapping and machine identity controls may still reveal infrastructure state or
+limit which public sets are exposed, so they remain separately configurable.
+
 ## Trust boundaries
 
 - Public internet to Caddy.
@@ -63,6 +68,8 @@ attacker who can substitute a response or update can obtain root access.
   record. Only a digest is stored server-side, and comparisons use constant-time
   code.
 - Machine tokens can be rotated and revoked individually.
+- An anonymous public group is allowed only through explicit configuration and
+  never as a fallback after failed CIDR or token authentication.
 - Configuration writes are serialized, validated, backed up, and atomically
   replaced. Invalid reloads preserve the last good in-memory configuration.
 - SSH keys are parsed and canonicalized with an established OpenSSH key library.
@@ -97,6 +104,11 @@ by their provisioned machine token rather than by network location.
 HTTPS with the embedded WebPKI roots is the normal transport. A current static
 Rust client avoids dependence on an old operating system's Python, OpenSSL, SNI,
 or CA store.
+
+Because public keys may intentionally be public, an anonymous group can be
+served without machine authentication. The transport and response signatures
+remain mandatory because replacing public keys is equivalent to granting
+unauthorized access to the machines using them.
 
 For firewalled networks where current TLS is unavailable, a separate listener
 may serve signed manifests over HTTP. Access is restricted by network controls,

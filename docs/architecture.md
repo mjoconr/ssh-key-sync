@@ -70,6 +70,12 @@ public keys or affecting other machines.
 The client token belongs in root-only client configuration and is sent only in
 the HTTP `Authorization` header. It is never accepted in a URL or query string.
 
+Machine authentication is not intended to make public keys confidential. A
+machine token selects and audits a key group. If the operator intentionally
+exposes one signed default group to every client, native clients may use that
+group without a token. Anonymous access must be explicit configuration; it must
+not be an accidental fallback when token authentication or a CIDR match fails.
+
 ## Selection rules
 
 - IPv4 and IPv6 CIDRs are supported through a dedicated CIDR type.
@@ -77,6 +83,8 @@ the HTTP `Authorization` header. It is never accepted in a URL or query string.
 - Native machine records select groups directly and therefore work behind NAT.
 - A CIDR constraint can optionally be added to a machine record as an extra
   restriction, but is not required for authenticated native clients.
+- A deliberately public default group can be used when every client should
+  receive the same public key set, including clients behind changing NAT.
 - An explicit default group is required in the new configuration format.
 - The legacy importer records any implicit fallback rather than silently
   changing behavior.
@@ -85,6 +93,11 @@ the HTTP `Authorization` header. It is never accepted in a URL or query string.
 - Public keys are deduplicated by their cryptographic fingerprint, not comment.
 - An empty result is a valid server result only when the selected group is
   explicitly configured to permit it.
+
+Public keys can normally be disclosed, but their contents are not unimportant:
+an unauthenticated response becomes an authorization vulnerability if an
+attacker can substitute another key. TLS or a signed response protects integrity
+regardless of whether the key material itself is confidential.
 
 Documentation examples use reserved ranges such as `192.0.2.0/24` and
 `2001:db8::/32`.

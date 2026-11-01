@@ -10,7 +10,8 @@ on Unix-like machines. It replaces the legacy PHP implementation while
 preserving enough of the XML-RPC interface for existing cron jobs to migrate
 safely.
 
-- Select keys by the client's network source address.
+- Select keys by an authenticated machine identity or by network source address
+  for legacy clients.
 - Support legacy cron and modern systemd schedules.
 - Preserve the current two-file SSH authorization model on Proxmox machines.
 - Make installs, upgrades, and rollbacks atomic and scriptable.
@@ -45,9 +46,10 @@ repository so protocol compatibility and release versions cannot drift.
 
 1. Caddy terminates TLS and forwards an allowed request to a loopback-only
    server listener.
-2. The server obtains the client address from a trusted proxy-controlled field.
-3. Configuration is validated and matched to a group using the most-specific
-   CIDR rule.
+2. Native clients authenticate with a manually provisioned per-machine token.
+   The token identifies a machine record and its assigned key groups.
+3. Legacy clients are matched to a group using the most-specific source CIDR
+   rule. The server obtains that address from a trusted proxy-controlled field.
 4. Keys assigned to that group are normalized and deduplicated by SSH
    fingerprint.
 5. The response is generated with a stable ordering and, on the native API,
@@ -55,14 +57,26 @@ repository so protocol compatibility and release versions cannot drift.
 6. The legacy endpoint renders the compatible XML-RPC string and trailing
    newline.
 
-The configuration file is the source of truth. There is no administration
-database in the initial design. Changes are validated before an atomic replace
-and are reloaded only when valid.
+The configuration file is the source of truth. It contains key groups,
+CIDR-to-group rules, machine records, and token hashes. There is no
+administration database in the initial design. Changes are validated before an
+atomic replace and are reloaded only when valid.
+
+Machine records are created one-to-one with a CLI command. The generated token
+is displayed once and stored with mode `0600` on that machine. The server stores
+only a digest of the token. Tokens can be rotated or revoked without changing
+public keys or affecting other machines.
+
+The client token belongs in root-only client configuration and is sent only in
+the HTTP `Authorization` header. It is never accepted in a URL or query string.
 
 ## Selection rules
 
 - IPv4 and IPv6 CIDRs are supported through a dedicated CIDR type.
 - A matching rule with the longest prefix wins.
+- Native machine records select groups directly and therefore work behind NAT.
+- A CIDR constraint can optionally be added to a machine record as an extra
+  restriction, but is not required for authenticated native clients.
 - An explicit default group is required in the new configuration format.
 - The legacy importer records any implicit fallback rather than silently
   changing behavior.
@@ -82,6 +96,8 @@ compatibility surface and should eventually be deprecated after all known cron
 clients are upgraded.
 
 The native endpoint returns a versioned, signed key-set document over HTTPS.
+The client authenticates with `Authorization: Bearer` using its per-machine
+token.
 The client verifies these fields before writing:
 
 - Protocol schema version.
@@ -93,7 +109,14 @@ The client verifies these fields before writing:
 
 Signed HTTP is an optional fallback only for firewalled legacy networks. TLS and
 VPN transports are preferred. An unsigned HTTP response must never update
-`authorized_keys`.
+`authorized_keys`. A reusable bearer token must not be sent over HTTP; that
+fallback requires an SSH/VPN tunnel or a reviewed proof-of-possession scheme.
+
+Legacy XML-RPC requests have no machine token. They continue to use the observed
+source address. A NAT that changes which public address the server sees can
+therefore select the wrong legacy group. Such machines must be upgraded to the
+native client or have their deployed NAT address represented explicitly in the
+legacy configuration.
 
 ## Client behavior
 

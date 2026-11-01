@@ -42,6 +42,8 @@ attacker who can substitute a response or update can obtain root access.
   configured trusted proxy.
 - Never use the caller-supplied hostname as an authorization decision.
 - Never let a client-supplied address override the observed network address.
+- Never send a reusable machine bearer token over plaintext HTTP.
+- Never store a plaintext machine token in server configuration or logs.
 - Never modify Proxmox's `/root/.ssh/authorized_keys`.
 - Never reload `sshd` with a configuration that failed `sshd -t`.
 - Never update to an older client or protocol version automatically.
@@ -57,6 +59,10 @@ attacker who can substitute a response or update can obtain root access.
   size limits.
 - CIDRs are validated at load time. Equal-precedence conflicts make the
   configuration invalid.
+- Native authentication maps a high-entropy per-machine token to one machine
+  record. Only a digest is stored server-side, and comparisons use constant-time
+  code.
+- Machine tokens can be rotated and revoked individually.
 - Configuration writes are serialized, validated, backed up, and atomically
   replaced. Invalid reloads preserve the last good in-memory configuration.
 - SSH keys are parsed and canonicalized with an established OpenSSH key library.
@@ -67,7 +73,8 @@ attacker who can substitute a response or update can obtain root access.
 
 The source CIDR is a key-set filter, not proof of host identity. NAT, reverse
 proxies, and moved addresses can change the selected group. More-specific
-exceptions must be tested explicitly.
+exceptions must be tested explicitly. Native clients are therefore identified
+by their provisioned machine token rather than by network location.
 
 ## Client and filesystem controls
 
@@ -98,6 +105,10 @@ document. Plain HTTP without signature verification is prohibited.
 
 SSH-tunnel or VPN transport may be used where old clients already have a trusted
 administrative path.
+
+Machine bearer tokens are accepted only over HTTPS. For a legacy HTTP path they
+must be protected inside an SSH or VPN tunnel, or replaced by a reviewed
+challenge-response proof implemented by both client and server.
 
 ## Release and update controls
 
@@ -142,6 +153,8 @@ administrative path.
 
 - Source CIDR matching selects a group but does not independently authenticate a
   machine.
+- A stolen native machine token can retrieve that machine's public key set until
+  the token is revoked.
 - A compromised trusted network can obtain that network's public key set.
 - A compromised signing environment can authorize malicious client updates.
 - Anyone with root on a managed machine can modify its installed keys and client.

@@ -53,6 +53,8 @@ release.
   directory so rename stays on one filesystem.
 - Logging defaults to metadata. Key material, request bodies, tokens, and private
   paths are redacted unless explicitly enabled for a documented diagnostic.
+- Authentication tokens are never accepted in URLs or command-line arguments.
+  Generated tokens are displayed once and written to root-only configuration.
 - `unsafe`, direct FFI, or privileged subprocess use requires a separate design
   review even if the workspace lint is temporarily relaxed.
 

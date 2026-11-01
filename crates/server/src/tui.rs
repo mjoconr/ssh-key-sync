@@ -494,7 +494,7 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .iter()
         .map(|item| {
             ListItem::new(format!(
-                "{:<28} {:<12} {:<20} {}",
+                "{:<28} {:<12} {:<20} {:<8} source={}",
                 item.label,
                 item.group,
                 item.id,
@@ -502,7 +502,8 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                     "revoked"
                 } else {
                     "active"
-                }
+                },
+                item.last_source_ip.as_deref().unwrap_or("-")
             ))
         })
         .collect::<Vec<_>>();

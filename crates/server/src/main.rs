@@ -371,7 +371,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let config = Config::load(config)?;
                 for token in open_state(&config)?.list_tokens()? {
                     println!(
-                        "{} {} {} {}",
+                        "{} {} {} {} last_used={} source={} client={}",
                         token.id,
                         token.group,
                         token.label,
@@ -379,7 +379,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "revoked"
                         } else {
                             "active"
-                        }
+                        },
+                        token
+                            .last_used_at
+                            .map_or_else(|| "-".into(), |value| value.to_string()),
+                        token.last_source_ip.as_deref().unwrap_or("-"),
+                        token.last_client_version.as_deref().unwrap_or("-"),
                     );
                 }
             }
@@ -633,6 +638,7 @@ async fn public_keys(
 
 async fn private_keys(
     AxumState(state): AxumState<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Result<Json<SignedEnvelope>, ApiError> {
     let nonce = nonce(&headers)?;
@@ -645,7 +651,20 @@ async fn private_keys(
     let group = config
         .group_for_token(token)
         .map(str::to_owned)
-        .or_else(|| state.state.group_for_token(token).ok().flatten());
+        .or_else(|| {
+            state
+                .state
+                .group_for_token(
+                    token,
+                    &client_ip(&headers, peer.ip()).to_string(),
+                    headers
+                        .get(axum::http::header::USER_AGENT)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or("unknown"),
+                )
+                .ok()
+                .flatten()
+        });
     let group = group.ok_or(ApiError(StatusCode::UNAUTHORIZED, "invalid bearer token"))?;
     signed(&state, &config, &group, nonce)
 }

@@ -31,6 +31,9 @@ enum Overlay {
     Approve(String),
     ConfirmDeny(String),
     ConfirmRevoke(String),
+    ConfirmHideEnrollment(String),
+    ConfirmRetire(String),
+    ConfirmHideToken(String),
     InstallInput(String),
     InstallCommands(String),
 }
@@ -137,6 +140,36 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
             KeyCode::Char('n') | KeyCode::Esc => app.overlay = Overlay::None,
             _ => {}
         },
+        Overlay::ConfirmHideEnrollment(request_id) => match code {
+            KeyCode::Char('y') => {
+                if app.state.hide_enrollment(request_id)? {
+                    app.message = format!("hid request {request_id}");
+                }
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => app.overlay = Overlay::None,
+            _ => {}
+        },
+        Overlay::ConfirmRetire(request_id) => match code {
+            KeyCode::Char('y') => {
+                if app.state.retire_enrollment(request_id)? {
+                    app.message = format!("retired request and token {request_id}");
+                }
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => app.overlay = Overlay::None,
+            _ => {}
+        },
+        Overlay::ConfirmHideToken(token_id) => match code {
+            KeyCode::Char('y') => {
+                if app.state.hide_token(token_id)? {
+                    app.message = format!("hid token {token_id}");
+                }
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Char('n') | KeyCode::Esc => app.overlay = Overlay::None,
+            _ => {}
+        },
         Overlay::InstallInput(hostname) => {
             let mut value = hostname.clone();
             match code {
@@ -207,6 +240,35 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                     }
                 }
             }
+            KeyCode::Char('x') => match app.tab {
+                Tab::Enrollments => {
+                    if let Some(request) = app
+                        .state
+                        .list_enrollments()?
+                        .into_iter()
+                        .nth(app.enrollment_index)
+                    {
+                        app.overlay = if request.status == "approved" {
+                            Overlay::ConfirmRetire(request.id)
+                        } else if request.status == "pending" {
+                            app.message = "deny the pending request before hiding it".into();
+                            Overlay::None
+                        } else {
+                            Overlay::ConfirmHideEnrollment(request.id)
+                        };
+                    }
+                }
+                Tab::Tokens => {
+                    if let Some(token) = app.state.list_tokens()?.into_iter().nth(app.token_index) {
+                        if token.revoked_at.is_some() {
+                            app.overlay = Overlay::ConfirmHideToken(token.id);
+                        } else {
+                            app.message = "revoke the token before hiding it".into();
+                        }
+                    }
+                }
+                Tab::Groups => {}
+            },
             _ => {}
         },
     }
@@ -279,7 +341,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
     };
     frame.render_widget(
         Paragraph::new(format!(
-            " SSH Key Sync | {title} | [Tab] section  [A]pprove  [D]eny  [R]evoke  [Q]uit "
+            " SSH Key Sync | {title} | [Tab] section [A]pprove [D]eny [R]evoke [X]hide/retire [Q]uit "
         ))
         .style(
             Style::default()
@@ -302,6 +364,18 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         Overlay::Approve(_) => draw_group_picker(frame, app),
         Overlay::ConfirmDeny(id) => draw_confirmation(frame, &format!("Deny {id}? [y/n]")),
         Overlay::ConfirmRevoke(id) => draw_confirmation(frame, &format!("Revoke {id}? [y/n]")),
+        Overlay::ConfirmHideEnrollment(id) => {
+            draw_confirmation(frame, &format!("Hide request {id}? [y/n]"));
+        }
+        Overlay::ConfirmRetire(id) => {
+            draw_confirmation(
+                frame,
+                &format!("Retire request and revoke token {id}? [y/n]"),
+            );
+        }
+        Overlay::ConfirmHideToken(id) => {
+            draw_confirmation(frame, &format!("Hide revoked token {id}? [y/n]"));
+        }
         Overlay::InstallInput(hostname) => draw_install_input(frame, hostname),
         Overlay::InstallCommands(hostname) => draw_install_commands(frame, app, hostname),
         Overlay::None => {}

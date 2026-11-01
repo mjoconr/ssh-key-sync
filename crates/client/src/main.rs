@@ -5,7 +5,7 @@ use std::{
     io::Write as _,
     os::unix::fs::PermissionsExt as _,
     path::{Path, PathBuf},
-    process::Command as ProcessCommand,
+    process::{Command as ProcessCommand, Stdio},
     time::Duration,
 };
 
@@ -60,6 +60,12 @@ enum Command {
         /// Poll until approved, denied, or expired.
         #[arg(long)]
         wait: bool,
+    },
+    /// Install or replace the root cron synchronization entry.
+    InstallCron {
+        /// Show the resulting crontab without installing it.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -137,7 +143,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } => configure_sshd(&cli.config, apply, no_reload, &drop_in)?,
         Command::Enroll { name } => enroll(&cli.config, &name).await?,
         Command::EnrollmentStatus { wait } => enrollment_status(&cli.config, wait).await?,
+        Command::InstallCron { dry_run } => install_cron(&cli.config, dry_run)?,
     }
+    Ok(())
+}
+
+fn install_cron(config_path: &Path, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let existing = ProcessCommand::new("crontab")
+        .arg("-l")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default();
+    let minute = (unix_now() / 60) % 60;
+    let command = format!(
+        "{minute} */2 * * * /usr/local/bin/ssh-key-sync-client --config {} sync >/dev/null 2>&1",
+        config_path.display()
+    );
+    let mut lines = existing
+        .lines()
+        .filter(|line| !line.contains("ssh-key-sync-client"))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    lines.push(command.clone());
+    let rendered = format!("{}\n", lines.join("\n"));
+    if dry_run {
+        print!("{rendered}");
+        return Ok(());
+    }
+    if !existing.is_empty() {
+        atomic_write_mode(
+            Path::new("/root/crontab.before-ssh-key-sync"),
+            existing.as_bytes(),
+            0o600,
+        )?;
+    }
+    let mut child = ProcessCommand::new("crontab")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .ok_or("cannot open crontab stdin")?
+        .write_all(rendered.as_bytes())?;
+    let status = child.wait()?;
+    if !status.success() {
+        return Err("crontab installation failed".into());
+    }
+    println!("Installed cron entry: {command}");
     Ok(())
 }
 

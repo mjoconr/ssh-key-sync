@@ -83,6 +83,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "atomic"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2562,7 +2571,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-client"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "clap",
  "fs2",
@@ -2578,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-core"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -2594,13 +2603,15 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-server"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
+ "arc-swap",
  "axum",
  "base64 0.22.1",
  "clap",
  "crossterm",
  "ed25519-dalek",
+ "ipnet",
  "rand 0.8.8",
  "ratatui",
  "roxmltree",
@@ -2610,6 +2621,7 @@ dependencies = [
  "ssh-key-sync-core",
  "tempfile",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]

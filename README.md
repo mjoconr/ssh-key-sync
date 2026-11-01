@@ -20,6 +20,8 @@ configuration.
 Version `0.2.x` provides key retrieval, installation, and machine enrollment.
 Version `0.3.x` adds a local terminal administration interface. Signed client
 self-updates and a web interface are not implemented yet.
+Version `0.4.x` adds validated atomic key/group/CIDR editing and live server
+configuration reload.
 
 ## Install
 

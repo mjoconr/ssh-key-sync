@@ -2,6 +2,7 @@
 
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
+use arc_swap::ArcSwap;
 use axum::{
     Json, Router,
     extract::{ConnectInfo, Path as AxumPath, State as AxumState},
@@ -21,6 +22,7 @@ use ssh_key_sync_core::{
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
+mod config_edit;
 mod state;
 mod tui;
 use state::State;
@@ -61,6 +63,16 @@ enum Command {
     Token {
         #[command(subcommand)]
         command: TokenCommand,
+    },
+    /// Manage key groups and CIDR rules.
+    Group {
+        #[command(subcommand)]
+        command: GroupCommand,
+    },
+    /// Manage public key owners and group assignments.
+    Key {
+        #[command(subcommand)]
+        command: KeyCommand,
     },
     /// Open the local administration terminal UI.
     Tui {
@@ -131,9 +143,74 @@ enum TokenCommand {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum GroupCommand {
+    /// Add an empty group.
+    Add {
+        name: String,
+        #[arg(long)]
+        public: bool,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// Remove an unreferenced group.
+    Remove {
+        name: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// Add a CIDR rule to a group.
+    AddCidr {
+        group: String,
+        cidr: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// Remove a CIDR rule from a group.
+    RemoveCidr {
+        group: String,
+        cidr: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum KeyCommand {
+    /// Add a public key and assign its owner to a group.
+    Add {
+        owner: String,
+        group: String,
+        key: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// Remove a key by fingerprint.
+    Remove {
+        owner: String,
+        fingerprint: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// Assign or remove a key owner's group membership.
+    Assign {
+        owner: String,
+        group: String,
+        #[arg(long)]
+        remove: bool,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// List keys and fingerprints.
+    List {
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+}
+
 #[derive(Clone)]
 struct AppState {
-    config: Arc<Config>,
+    config: Arc<ArcSwap<Config>>,
     signing_key: Arc<SigningKey>,
     state: Arc<State>,
 }
@@ -323,6 +400,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         },
+        Command::Group { command } => {
+            use GroupCommand::{Add, AddCidr, Remove, RemoveCidr};
+            match command {
+                Add {
+                    name,
+                    public,
+                    config,
+                } => {
+                    config_edit::Editor::open(config)?.add_group(name, public)?;
+                }
+                Remove { name, config } => {
+                    config_edit::Editor::open(config)?.remove_group(&name)?;
+                }
+                AddCidr {
+                    group,
+                    cidr,
+                    config,
+                } => {
+                    config_edit::Editor::open(config)?.add_cidr(&group, &cidr)?;
+                }
+                RemoveCidr {
+                    group,
+                    cidr,
+                    config,
+                } => {
+                    config_edit::Editor::open(config)?.remove_cidr(&group, &cidr)?;
+                }
+            }
+            println!("configuration updated");
+        }
+        Command::Key { command } => {
+            use KeyCommand::{Add, Assign, List, Remove};
+            match command {
+                Add {
+                    owner,
+                    group,
+                    key,
+                    config,
+                } => {
+                    config_edit::Editor::open(config)?.add_key(&owner, &group, &key)?;
+                }
+                Remove {
+                    owner,
+                    fingerprint,
+                    config,
+                } => {
+                    config_edit::Editor::open(config)?.remove_key(&owner, &fingerprint)?;
+                }
+                Assign {
+                    owner,
+                    group,
+                    remove,
+                    config,
+                } => {
+                    config_edit::Editor::open(config)?.assign_key(&owner, &group, !remove)?;
+                }
+                List { config } => {
+                    let config = Config::load(config)?;
+                    for (owner, entry) in config.keys {
+                        for key in entry.keys {
+                            let fingerprint =
+                                ssh_key_sync_core::parse_public_key(&key)?.fingerprint;
+                            println!("{owner} {fingerprint} groups={}", entry.groups.join(","));
+                        }
+                    }
+                    return Ok(());
+                }
+            }
+            println!("configuration updated");
+        }
         Command::Tui { config } => tui::run(config)?,
         Command::Serve { config } => run(config).await?,
     }
@@ -330,15 +477,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::load(path)?;
+    let config = Config::load(&path)?;
     let signing_key = load_signing_key(&config.signing_key_file)?;
     let state = open_state(&config)?;
     let address: SocketAddr = config.listen.parse()?;
+    let config = Arc::new(ArcSwap::from_pointee(config));
     let state = AppState {
-        config: Arc::new(config),
+        config: config.clone(),
         signing_key: Arc::new(signing_key),
         state: Arc::new(state),
     };
+    let reload_path = path.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            match Config::load(&reload_path) {
+                Ok(updated) => config.store(Arc::new(updated)),
+                Err(error) => error!(%error, "configuration reload rejected"),
+            }
+        }
+    });
     let app = Router::new()
         .route("/v1/health", get(health))
         .route("/v1/keys/public", get(public_keys))
@@ -441,10 +599,14 @@ fn nonce(headers: &HeaderMap) -> Result<String, ApiError> {
         .ok_or(ApiError(StatusCode::BAD_REQUEST, "missing request nonce"))
 }
 
-fn signed(state: &AppState, group: &str, nonce: String) -> Result<Json<SignedEnvelope>, ApiError> {
+fn signed(
+    state: &AppState,
+    config: &Config,
+    group: &str,
+    nonce: String,
+) -> Result<Json<SignedEnvelope>, ApiError> {
     let now = unix_now();
-    let keys = state
-        .config
+    let keys = config
         .keys_for_group(group)
         .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "configuration error"))?;
     let payload = KeySetPayload {
@@ -465,7 +627,8 @@ async fn public_keys(
     headers: HeaderMap,
 ) -> Result<Json<SignedEnvelope>, ApiError> {
     let nonce = nonce(&headers)?;
-    signed(&state, &state.config.default_group, nonce)
+    let config = state.config.load();
+    signed(&state, &config, &config.default_group, nonce)
 }
 
 async fn private_keys(
@@ -478,13 +641,13 @@ async fn private_keys(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or(ApiError(StatusCode::UNAUTHORIZED, "missing bearer token"))?;
-    let group = state
-        .config
+    let config = state.config.load();
+    let group = config
         .group_for_token(token)
         .map(str::to_owned)
         .or_else(|| state.state.group_for_token(token).ok().flatten());
     let group = group.ok_or(ApiError(StatusCode::UNAUTHORIZED, "invalid bearer token"))?;
-    signed(&state, &group, nonce)
+    signed(&state, &config, &group, nonce)
 }
 
 async fn xmlrpc(
@@ -506,8 +669,9 @@ async fn xmlrpc(
     if !valid_method {
         return xml_fault(404, "Unknown method");
     }
-    let group = state.config.group_for_ip(client_ip(&headers, peer.ip()));
-    let keys = match state.config.keys_for_group(group) {
+    let config = state.config.load();
+    let group = config.group_for_ip(client_ip(&headers, peer.ip()));
+    let keys = match config.keys_for_group(group) {
         Ok(keys) => keys,
         Err(error) => {
             error!(%error, "legacy key selection failed");

@@ -142,6 +142,24 @@ ssh-key-sync-client sync --dry-run
 systemctl start ssh-key-sync-client.service
 ```
 
+## Editing Keys And Groups
+
+Configuration edits are validated, backed up, written atomically, and loaded by
+the running server within approximately two seconds.
+
+```sh
+ssh-key-sync-server key list
+ssh-key-sync-server group add staging
+ssh-key-sync-server group add-cidr staging 192.0.2.0/24
+ssh-key-sync-server key add alice staging 'ssh-ed25519 AAAA... alice@example'
+ssh-key-sync-server key assign alice staging
+ssh-key-sync-server key remove alice SHA256:fingerprint
+ssh-key-sync-server group remove staging
+```
+
+`group remove` and `key remove` reject unsafe changes through normal
+configuration validation. A timestamped backup is created before each edit.
+
 ## Server Upgrade
 
 1. Validate the new build in Docker:

@@ -34,6 +34,9 @@ Keys are parsed with the OpenSSH key format and deduplicated by fingerprint.
 GET /v1/health
 GET /v1/keys/public
 GET /v1/keys                 Authorization: Bearer <token>
+GET /v1/signing-key
+POST /v1/enrollments
+GET /v1/enrollments/{id}
 ```
 
 Key requests require `X-Request-Nonce`. The response contains signed payload
@@ -54,6 +57,15 @@ method: ssh.getKeys
 
 The response is a newline-terminated key string inside XML-RPC. Existing cron
 clients can continue using this endpoint.
+
+## Enrollment
+
+Clients generate a request secret and a private machine token. They submit only
+their SHA-256 digests, hostname, name, and local interface addresses. An
+administrator reviews pending requests through the server command line and
+approves a request into an existing group. Approval activates the submitted
+machine-token digest. The client polls with its request secret and stores its
+local token with mode `0600`.
 
 ## Client Installation
 

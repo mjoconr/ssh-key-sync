@@ -27,10 +27,13 @@ jobs:
           mkdir -p release/package
           cp .local/linux-bin/ssh-key-sync-client-musl release/package/ssh-key-sync-client
           cp install.sh release/install.sh
+          cp deploy/ssh-key-sync-client.service release/
+          cp deploy/ssh-key-sync-client.timer release/
           tar -C release/package -czf "release/$asset.tar.gz" ssh-key-sync-client
           rm -rf release/package
           cd release
-          sha256sum ./*.tar.gz | sed 's#  \./#  #' > SHA256SUMS
+          sha256sum ./*.tar.gz ./ssh-key-sync-client.service ./ssh-key-sync-client.timer |
+            sed 's#  \./#  #' > SHA256SUMS
 
       - name: Publish release
         env:

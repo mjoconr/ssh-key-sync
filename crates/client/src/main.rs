@@ -11,9 +11,10 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use fs2::FileExt as _;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use ssh_key_sync_core::{
-    SignedEnvelope, load_verifying_key, new_nonce, parse_public_key, unix_now, verify_envelope,
+    SignedEnvelope, load_verifying_key, new_nonce, new_token, parse_public_key, token_digest,
+    unix_now, verify_envelope,
 };
 
 #[derive(Debug, Parser)]
@@ -48,6 +49,18 @@ enum Command {
         #[arg(long, default_value = "/etc/ssh/sshd_config.d/20-ssh-key-sync.conf")]
         drop_in: PathBuf,
     },
+    /// Request approval for a private-group machine token.
+    Enroll {
+        /// Human-readable machine name shown to the administrator.
+        #[arg(long)]
+        name: String,
+    },
+    /// Check or wait for enrollment approval.
+    EnrollmentStatus {
+        /// Poll until approved, denied, or expired.
+        #[arg(long)]
+        wait: bool,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,6 +74,37 @@ struct ClientConfig {
     token_file: Option<PathBuf>,
     #[serde(default)]
     allow_empty: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PendingEnrollment {
+    request_id: String,
+    secret: String,
+    token: String,
+    token_file: PathBuf,
+}
+
+#[derive(Debug, Serialize)]
+struct EnrollmentRequest<'a> {
+    name: &'a str,
+    hostname: &'a str,
+    local_addresses: Vec<String>,
+    secret_digest: String,
+    token_digest: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct EnrollmentCreated {
+    request_id: String,
+    code: String,
+    expires_at: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct EnrollmentState {
+    status: String,
+    group: Option<String>,
+    expires_at: u64,
 }
 
 impl ClientConfig {
@@ -91,8 +135,107 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             no_reload,
             drop_in,
         } => configure_sshd(&cli.config, apply, no_reload, &drop_in)?,
+        Command::Enroll { name } => enroll(&cli.config, &name).await?,
+        Command::EnrollmentStatus { wait } => enrollment_status(&cli.config, wait).await?,
     }
     Ok(())
+}
+
+async fn enroll(config_path: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let config = ClientConfig::load(config_path)?;
+    let token_file = config
+        .token_file
+        .clone()
+        .ok_or("enrollment requires token_file in the client configuration")?;
+    let secret = new_token();
+    let token = new_token();
+    let local_addresses = if_addrs::get_if_addrs()?
+        .into_iter()
+        .filter(|interface| !interface.is_loopback())
+        .take(32)
+        .map(|interface| format!("{}:{}", interface.name, interface.addr.ip()))
+        .collect();
+    let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".into());
+    let body = EnrollmentRequest {
+        name,
+        hostname: &hostname,
+        local_addresses,
+        secret_digest: token_digest(&secret),
+        token_digest: token_digest(&token),
+    };
+    let created: EnrollmentCreated = reqwest::Client::new()
+        .post(format!(
+            "{}/v1/enrollments",
+            config.server_url.trim_end_matches('/')
+        ))
+        .json(&body)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    let pending = PendingEnrollment {
+        request_id: created.request_id.clone(),
+        secret,
+        token,
+        token_file,
+    };
+    atomic_write_mode(
+        &config_path.with_file_name("pending-enrollment.json"),
+        serde_json::to_string_pretty(&pending)?.as_bytes(),
+        0o600,
+    )?;
+    println!("request: {}", created.request_id);
+    println!("code:    {}", created.code);
+    println!("expires: {}", created.expires_at);
+    println!("Waiting for administrator approval.");
+    Ok(())
+}
+
+async fn enrollment_status(
+    config_path: &Path,
+    wait: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = ClientConfig::load(config_path)?;
+    let pending_path = config_path.with_file_name("pending-enrollment.json");
+    let pending: PendingEnrollment = serde_json::from_str(&fs::read_to_string(&pending_path)?)?;
+    let client = reqwest::Client::new();
+    loop {
+        let state: EnrollmentState = client
+            .get(format!(
+                "{}/v1/enrollments/{}",
+                config.server_url.trim_end_matches('/'),
+                pending.request_id
+            ))
+            .bearer_auth(&pending.secret)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        match state.status.as_str() {
+            "approved" => {
+                atomic_write_mode(
+                    &pending.token_file,
+                    format!("{}\n", pending.token).as_bytes(),
+                    0o600,
+                )?;
+                println!(
+                    "approved for group {}; token installed at {}",
+                    state.group.unwrap_or_default(),
+                    pending.token_file.display()
+                );
+                return Ok(());
+            }
+            "denied" => return Err("enrollment was denied".into()),
+            _ if unix_now() > state.expires_at => return Err("enrollment expired".into()),
+            _ if wait => tokio::time::sleep(Duration::from_secs(5)).await,
+            _ => {
+                println!("status: pending");
+                return Ok(());
+            }
+        }
+    }
 }
 
 async fn sync(config_path: &Path, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -374,11 +517,19 @@ fn reload_sshd() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn atomic_write(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    atomic_write_mode(path, content, 0o644)
+}
+
+fn atomic_write_mode(
+    path: &Path,
+    content: &[u8],
+    mode: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
     let parent = path.parent().ok_or("path has no parent")?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary
         .as_file()
-        .set_permissions(fs::Permissions::from_mode(0o644))?;
+        .set_permissions(fs::Permissions::from_mode(mode))?;
     temporary.write_all(content)?;
     temporary.as_file_mut().sync_all()?;
     temporary.persist(path)?;

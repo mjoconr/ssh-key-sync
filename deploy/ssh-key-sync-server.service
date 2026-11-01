@@ -10,6 +10,7 @@ Group=ssh-key-sync
 ExecStart=/usr/local/bin/ssh-key-sync-server serve --config /etc/ssh-key-sync/server.toml
 Restart=on-failure
 RestartSec=5s
+StateDirectory=ssh-key-sync
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=true

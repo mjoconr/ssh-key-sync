@@ -86,6 +86,7 @@ scripts/docker-test.sh
 ```
 
 See [development.md](docs/development.md) and [security.md](docs/security.md).
+Deployment procedures are in [operations.md](docs/operations.md).
 
 ## License
 

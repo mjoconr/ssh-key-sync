@@ -155,7 +155,10 @@ async fn enroll(config_path: &Path, name: &str) -> Result<(), Box<dyn std::error
         .take(32)
         .map(|interface| format!("{}:{}", interface.name, interface.addr.ip()))
         .collect();
-    let hostname = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".into());
+    let hostname = fs::read_to_string("/etc/hostname")
+        .map(|value| value.trim().to_owned())
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "unknown".into());
     let body = EnrollmentRequest {
         name,
         hostname: &hostname,

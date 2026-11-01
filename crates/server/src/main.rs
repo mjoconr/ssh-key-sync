@@ -323,6 +323,7 @@ async fn signing_key_handler(AxumState(state): AxumState<AppState>) -> Vec<u8> {
 async fn create_enrollment(
     AxumState(state): AxumState<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(request): Json<EnrollmentRequest>,
 ) -> Result<(StatusCode, Json<EnrollmentResponse>), ApiError> {
     if request.name.trim().is_empty()
@@ -342,7 +343,7 @@ async fn create_enrollment(
             request.name.trim(),
             &request.hostname,
             &request.local_addresses,
-            &peer.ip().to_string(),
+            &client_ip(&headers, peer.ip()).to_string(),
             &request.secret_digest,
             &request.token_digest,
         )
@@ -440,6 +441,7 @@ async fn private_keys(
 async fn xmlrpc(
     AxumState(state): AxumState<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     body: String,
 ) -> Response {
     let valid_method = roxmltree::Document::parse(&body)
@@ -455,7 +457,7 @@ async fn xmlrpc(
     if !valid_method {
         return xml_fault(404, "Unknown method");
     }
-    let group = state.config.group_for_ip(peer.ip());
+    let group = state.config.group_for_ip(client_ip(&headers, peer.ip()));
     let keys = match state.config.keys_for_group(group) {
         Ok(keys) => keys,
         Err(error) => {
@@ -497,4 +499,15 @@ fn xml_escape(value: &str) -> String {
         .replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+fn client_ip(headers: &HeaderMap, peer: std::net::IpAddr) -> std::net::IpAddr {
+    if !peer.is_loopback() {
+        return peer;
+    }
+    headers
+        .get("x-real-ip")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(peer)
 }

@@ -1,0 +1,25 @@
+[Unit]
+Description=SSH Key Sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ssh-key-sync
+Group=ssh-key-sync
+ExecStart=/usr/local/bin/ssh-key-sync-server serve --config /etc/ssh-key-sync/server.toml
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

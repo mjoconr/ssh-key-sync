@@ -6,6 +6,18 @@ The project is currently at the design and scaffolding stage. No command shown
 in the design documentation is considered available until it is implemented and
 listed here.
 
+Implemented in the first milestone:
+
+- Validated TOML server/client configuration.
+- Deterministic CIDR and restricted-token group selection.
+- Ed25519-signed native responses with nonce and expiry validation.
+- Public `/v1/keys/public`, restricted `/v1/keys`, and legacy `/xmlrpc/` routes.
+- Portable HTTPS client with atomic `authorized_keys` replacement.
+- `inspect-sshd`, key/token generation, and configuration validation commands.
+
+Not yet implemented: enrollment approval, `sshd` configuration apply/rollback,
+systemd installation automation, self-upgrade, and the optional UI.
+
 SSH Key Sync is pull-only. It does not push commands, deploy configuration, or
 require a central orchestration service. Each machine is installed individually
 and remains responsible for its own schedule, network policy, and rollback.
@@ -47,6 +59,21 @@ This repository is intended to remain safe to publish.
 
 Run `scripts/check-public-tree.sh` before the first push and after adding
 fixtures or deployment files.
+
+## Development run
+
+Generate a signing key and a token, copy
+[`examples/server.toml`](examples/server.toml), then run:
+
+```sh
+cargo run -p ssh-key-sync-server -- generate-keys --output .local
+cargo run -p ssh-key-sync-server -- check-config --config .local/server.toml
+cargo run -p ssh-key-sync-server -- serve --config .local/server.toml
+```
+
+Client configuration is illustrated by
+[`examples/client.toml`](examples/client.toml). Run `sync --dry-run` before a
+real installation.
 
 No open-source license has been selected yet. The repository should remain
 private until the owner chooses a license and reviews all release tooling.

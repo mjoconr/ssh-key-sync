@@ -1,0 +1,18 @@
+[Unit]
+Description=Synchronize managed SSH public keys
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/ssh-key-sync-client --config /etc/ssh-key-sync/client.toml sync
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/etc/ssh/authorized_keys.d
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallArchitectures=native

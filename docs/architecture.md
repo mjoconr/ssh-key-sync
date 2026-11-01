@@ -14,6 +14,7 @@ safely.
 - Support legacy cron and modern systemd schedules.
 - Preserve the current two-file SSH authorization model on Proxmox machines.
 - Make installs, upgrades, and rollbacks atomic and scriptable.
+- Allow independently managed machines to pull from one shared authority.
 - Remain publishable as open source without containing deployment secrets.
 
 ## Non-goals
@@ -21,6 +22,9 @@ safely.
 - General identity, account, or authorization management.
 - Granting different Unix accounts to different people.
 - Replacing Proxmox cluster key management.
+- Central configuration management, remote command execution, or push deploys.
+- Automatic discovery or enrollment of machines.
+- Requiring a central agent to manage each host.
 - A graphical administration application in the first implementation.
 
 ## Components
@@ -107,6 +111,11 @@ The default target is the root account. A sync operation:
 
 The previous known-good file is retained for rollback.
 
+Machines are deliberately managed one-to-one. Installing the client and
+enabling its schedule are explicit local operations. The server never initiates
+a connection to a client and cannot remotely run upgrade or configuration
+commands.
+
 ### SSH files and Proxmox
 
 The client owns `/etc/ssh/authorized_keys.d/%u`. Proxmox retains ownership of
@@ -138,6 +147,8 @@ operating-system differences are not tags.
 The server hosts a signed update manifest containing version, protocol
 compatibility, artifact hashes, and architecture-specific download paths.
 Clients use a stable or canary channel and never downgrade automatically.
+Upgrade checks may be run manually or by the client's local systemd timer. This
+is a client pull operation, not a deployment pushed by the server.
 
 Private GitHub release assets are not the client download endpoint because that
 would require placing GitHub credentials on every managed machine. The deploy

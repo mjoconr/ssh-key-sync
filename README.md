@@ -6,6 +6,10 @@ The project is currently at the design and scaffolding stage. No command shown
 in the design documentation is considered available until it is implemented and
 listed here.
 
+SSH Key Sync is pull-only. It does not push commands, deploy configuration, or
+require a central orchestration service. Each machine is installed individually
+and remains responsible for its own schedule, network policy, and rollback.
+
 ## Repository layout
 
 - `crates/core` contains protocol types and shared key, group, and CIDR logic.

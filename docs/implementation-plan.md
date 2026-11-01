@@ -13,6 +13,10 @@ Done:
 
 Exit gate: documented architecture, threat model, and clean repository history.
 
+Product boundary: this is a pull-only key authority for independently managed
+machines. It is not a general configuration-management or remote-deployment
+system.
+
 ## Phase 1: core domain and compatibility
 
 - Define validated types for groups, CIDRs, public keys, fingerprints, protocol

@@ -70,6 +70,12 @@ enum EnrollmentCommand {
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
     },
+    /// Show request details.
+    Show {
+        request_id: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
     /// Approve a request into a configured group.
     Approve {
         request_id: String,
@@ -158,6 +164,7 @@ fn open_state(config: &Config) -> Result<State, Box<dyn std::error::Error>> {
 }
 
 #[tokio::main]
+#[allow(clippy::too_many_lines)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -187,15 +194,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let config = Config::load(config)?;
                 for enrollment in open_state(&config)?.list_enrollments()? {
                     println!(
-                        "{} {} {} {} {} {}",
+                        "{} {} {} {} host={} source={} addresses={} group={} expires={}",
                         enrollment.id,
                         enrollment.code,
                         enrollment.status,
                         enrollment.name,
+                        enrollment.hostname,
                         enrollment.source_ip,
-                        enrollment.group.unwrap_or_default()
+                        enrollment.local_addresses,
+                        enrollment.group.unwrap_or_default(),
+                        enrollment.expires_at
                     );
                 }
+            }
+            EnrollmentCommand::Show { request_id, config } => {
+                let config = Config::load(config)?;
+                let enrollment = open_state(&config)?
+                    .enrollment_by_id(&request_id)?
+                    .ok_or("request not found")?;
+                println!(
+                    "{} {} {} {} host={} source={} addresses={} group={} expires={}",
+                    enrollment.id,
+                    enrollment.code,
+                    enrollment.status,
+                    enrollment.name,
+                    enrollment.hostname,
+                    enrollment.source_ip,
+                    enrollment.local_addresses,
+                    enrollment.group.unwrap_or_default(),
+                    enrollment.expires_at
+                );
             }
             EnrollmentCommand::Approve {
                 request_id,

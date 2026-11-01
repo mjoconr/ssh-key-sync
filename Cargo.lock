@@ -1741,7 +1741,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-client"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "fs2",
@@ -1757,7 +1757,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -1773,7 +1773,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-server"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "clap",

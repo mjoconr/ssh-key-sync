@@ -60,6 +60,8 @@ impl State {
                subject TEXT NOT NULL, details TEXT NOT NULL, created_at INTEGER NOT NULL
              );",
         )?;
+        ensure_column(&db, "enrollments", "hidden_at", "INTEGER")?;
+        ensure_column(&db, "machine_tokens", "hidden_at", "INTEGER")?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -108,7 +110,7 @@ impl State {
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
         let mut statement = db.prepare(
             "SELECT id,code,name,hostname,local_addresses,source_ip,status,group_name,created_at,expires_at
-             FROM enrollments ORDER BY created_at DESC",
+             FROM enrollments WHERE hidden_at IS NULL ORDER BY created_at DESC",
         )?;
         statement.query_map([], Self::map_enrollment)?.collect()
     }
@@ -157,6 +159,45 @@ impl State {
         Ok(changed > 0)
     }
 
+    pub(crate) fn hide_enrollment(&self, id: &str) -> rusqlite::Result<bool> {
+        let now = unix_now();
+        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let changed = db.execute(
+            "UPDATE enrollments SET hidden_at=?1 WHERE id=?2 AND hidden_at IS NULL AND status!='pending'",
+            params![now as i64, id],
+        )?;
+        if changed > 0 {
+            Self::audit_locked(&db, "enrollment.hide", id, "hidden")?;
+        }
+        Ok(changed > 0)
+    }
+
+    pub(crate) fn retire_enrollment(&self, id: &str) -> rusqlite::Result<bool> {
+        let now = unix_now();
+        let mut db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let tx = db.transaction()?;
+        let changed = tx.execute(
+            "UPDATE enrollments SET hidden_at=?1 WHERE id=?2 AND hidden_at IS NULL AND status!='pending'",
+            params![now as i64, id],
+        )?;
+        if changed == 0 {
+            return Ok(false);
+        }
+        tx.execute(
+            "UPDATE machine_tokens SET revoked_at=COALESCE(revoked_at,?1),hidden_at=COALESCE(hidden_at,?1)
+             WHERE id=?2",
+            params![now as i64, format!("machine-{id}")],
+        )?;
+        Self::audit_locked(
+            &tx,
+            "enrollment.retire",
+            id,
+            "token revoked and record hidden",
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     pub(crate) fn group_for_token(&self, plaintext: &str) -> rusqlite::Result<Option<String>> {
         let digest = token_digest(plaintext);
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
@@ -171,7 +212,8 @@ impl State {
     pub(crate) fn list_tokens(&self) -> rusqlite::Result<Vec<TokenRecord>> {
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
         let mut statement = db.prepare(
-            "SELECT id,label,group_name,created_at,revoked_at FROM machine_tokens ORDER BY created_at DESC",
+            "SELECT id,label,group_name,created_at,revoked_at FROM machine_tokens
+             WHERE hidden_at IS NULL ORDER BY created_at DESC",
         )?;
         statement
             .query_map([], |row| {
@@ -210,6 +252,19 @@ impl State {
         Ok(changed > 0)
     }
 
+    pub(crate) fn hide_token(&self, id: &str) -> rusqlite::Result<bool> {
+        let now = unix_now();
+        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let changed = db.execute(
+            "UPDATE machine_tokens SET hidden_at=?1 WHERE id=?2 AND hidden_at IS NULL AND revoked_at IS NOT NULL",
+            params![now as i64, id],
+        )?;
+        if changed > 0 {
+            Self::audit_locked(&db, "token.hide", id, "hidden")?;
+        }
+        Ok(changed > 0)
+    }
+
     fn map_enrollment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Enrollment> {
         Ok(Enrollment {
             id: row.get(0)?,
@@ -237,6 +292,24 @@ impl State {
         )?;
         Ok(())
     }
+}
+
+fn ensure_column(
+    db: &Connection,
+    table: &str,
+    column: &str,
+    declaration: &str,
+) -> rusqlite::Result<()> {
+    let mut statement = db.prepare(&format!("PRAGMA table_info({table})"))?;
+    let names = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !names.iter().any(|name| name == column) {
+        db.execute_batch(&format!(
+            "ALTER TABLE {table} ADD COLUMN {column} {declaration}"
+        ))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -268,6 +341,10 @@ mod tests {
         );
         assert!(state.revoke_token(&format!("machine-{id}")).unwrap());
         assert!(state.group_for_token(token).unwrap().is_none());
+        assert!(state.hide_token(&format!("machine-{id}")).unwrap());
+        assert!(state.list_tokens().unwrap().is_empty());
+        assert!(state.retire_enrollment(&id).unwrap());
+        assert!(state.list_enrollments().unwrap().is_empty());
     }
 
     #[test]

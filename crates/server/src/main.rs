@@ -96,6 +96,18 @@ enum EnrollmentCommand {
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
     },
+    /// Hide a decided request while preserving its audit record.
+    Hide {
+        request_id: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// Revoke the associated token and hide an old machine enrollment.
+    Retire {
+        request_id: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -107,6 +119,12 @@ enum TokenCommand {
     },
     /// Revoke a machine token.
     Revoke {
+        token_id: String,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// Hide a revoked token while preserving its audit record.
+    Hide {
         token_id: String,
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
@@ -254,6 +272,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return Err("request is missing or already decided".into());
                 }
             }
+            EnrollmentCommand::Hide { request_id, config } => {
+                let config = Config::load(config)?;
+                if open_state(&config)?.hide_enrollment(&request_id)? {
+                    println!("hid {request_id}");
+                } else {
+                    return Err("request is missing, pending, or already hidden".into());
+                }
+            }
+            EnrollmentCommand::Retire { request_id, config } => {
+                let config = Config::load(config)?;
+                if open_state(&config)?.retire_enrollment(&request_id)? {
+                    println!("retired {request_id}");
+                } else {
+                    return Err("request is missing, pending, or already hidden".into());
+                }
+            }
         },
         Command::Token { command } => match command {
             TokenCommand::List { config } => {
@@ -278,6 +312,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("revoked {token_id}");
                 } else {
                     return Err("token is missing or already revoked".into());
+                }
+            }
+            TokenCommand::Hide { token_id, config } => {
+                let config = Config::load(config)?;
+                if open_state(&config)?.hide_token(&token_id)? {
+                    println!("hid {token_id}");
+                } else {
+                    return Err("token is missing, active, or already hidden".into());
                 }
             }
         },

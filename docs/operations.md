@@ -102,6 +102,18 @@ Or deny:
 ssh-key-sync-server enrollment deny REQUEST_ID
 ```
 
+Denied or retired requests can be hidden without deleting their audit trail:
+
+```sh
+ssh-key-sync-server enrollment hide REQUEST_ID
+```
+
+Revoke and hide an old approved machine enrollment atomically:
+
+```sh
+ssh-key-sync-server enrollment retire REQUEST_ID
+```
+
 On the client:
 
 ```sh
@@ -172,10 +184,30 @@ Revoke a token:
 ssh-key-sync-server token revoke TOKEN_ID
 ```
 
+Revoked tokens can be hidden:
+
+```sh
+ssh-key-sync-server token hide TOKEN_ID
+```
+
 Revocation prevents that machine from fetching its group again. It does not
 remove keys already present locally. To remove access immediately, also remove
 the corresponding public-key assignment from the group configuration and
 perform a successful sync using another authorized client.
+
+## Hostname Change
+
+Do not edit an active enrollment identity in place. Use replacement enrollment:
+
+1. Change the operating system hostname locally and verify SSH.
+2. Run client enrollment with the new name.
+3. Approve the new request into the correct group.
+4. Complete `enrollment-status --wait` and verify a sync.
+5. Retire the previous enrollment and token with `enrollment retire`.
+6. Hide the old request and revoked token if they should leave the active TUI.
+
+This preserves an audit trail and keeps the old credential valid until the new
+credential has been tested.
 
 ## Failure And Rollback
 

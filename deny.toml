@@ -15,6 +15,7 @@ allow = [
     "Zlib",
 ]
 confidence-threshold = 0.8
+private = { ignore = true }
 
 [bans]
 multiple-versions = "warn"

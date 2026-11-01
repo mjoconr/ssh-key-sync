@@ -591,13 +591,25 @@ fn atomic_write_mode(
     mode: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let parent = path.parent().ok_or("path has no parent")?;
-    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
-    temporary
-        .as_file()
-        .set_permissions(fs::Permissions::from_mode(mode))?;
+    let temp_path = parent.join(format!(
+        ".{}.tmp.{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("path has no filename")?,
+        std::process::id()
+    ));
+    let mut temporary = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&temp_path)?;
+    temporary.set_permissions(fs::Permissions::from_mode(mode))?;
     temporary.write_all(content)?;
-    temporary.as_file_mut().sync_all()?;
-    temporary.persist(path)?;
+    temporary.sync_all()?;
+    drop(temporary);
+    if let Err(error) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error.into());
+    }
     Ok(())
 }
 
@@ -637,5 +649,18 @@ mod tests {
         assert!(updated.contains("AuthorizedKeysFile .ssh/authorized_keys /managed/root"));
         assert!(!updated.contains("AuthorizedKeysFile\t.ssh/authorized_keys"));
         assert_eq!(updated.matches("AuthorizedKeysFile").count(), 1);
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("token");
+        fs::write(&path, b"old").unwrap();
+        atomic_write_mode(&path, b"new\n", 0o600).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"new\n");
+        assert_eq!(
+            fs::metadata(path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 }

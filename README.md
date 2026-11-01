@@ -15,6 +15,8 @@ configuration.
 - Separate managed and existing authorization files.
 - Safe `sshd` changes with validation, reload, and rollback.
 - systemd timer deployment.
+- Optional checksum-verified client and server auto-update timers.
+- Online SQLite state backups with retention.
 
 ## Status
 
@@ -52,6 +54,7 @@ curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/inst
 
 `--apply-ssh` uses the validated configuration and rollback behavior described
 above. Add `--enroll HOSTNAME` instead of `--enable-timer` for a private group.
+Add `--enable-auto-update` to enable the daily client upgrade timer.
 
 ## Server
 
@@ -72,7 +75,7 @@ Install or upgrade a server binary from a published release with:
 ```sh
 curl -fsSL \
   https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install-server.sh |
-  sudo sh
+  sudo sh -s -- --enable-auto-update
 ```
 
 See [server.toml](examples/server.toml) and

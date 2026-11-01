@@ -230,6 +230,79 @@ curl -fsSL \
 
 The database, server configuration, and signing key are never replaced.
 
+### Automatic Updates
+
+Client and server upgrades are pull-based, checksum-verified, and opt-in. The
+installers can add a daily systemd timer, or a daily root cron entry on older
+client systems without systemd:
+
+```sh
+# Client
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh |
+  sudo sh -s -- --enable-auto-update
+
+# Server
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install-server.sh |
+  sudo sh -s -- --enable-auto-update
+```
+
+The server updater validates the candidate configuration, restarts the
+service, and restores the previous binary if the health check fails. Updates
+do not modify the database, signing key, or either machine's client settings.
+
+Automatic operating-system updates remain the operating system's
+responsibility. On Debian or Ubuntu, configure `unattended-upgrades` for the
+security archive. The optional reboot timer only requests a restart when
+`/run/reboot-required` exists:
+
+```sh
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install-server.sh |
+  sudo sh -s -- --enable-reboot-timer
+```
+
+Review the reboot window before enabling it on a server carrying mail, PBX, or
+virtualization workloads.
+
+Disable an application update timer with:
+
+```sh
+sudo systemctl disable --now ssh-key-sync-client-update.timer
+sudo rm /etc/ssh-key-sync/client-auto-update
+```
+
+Use `ssh-key-sync-server-update.timer` and
+`/etc/ssh-key-sync/auto-update` for a server. The reboot timer is independent
+and can be removed with `systemctl disable --now ssh-key-sync-reboot.timer`.
+
+### State Backups
+
+SQLite snapshots can be created while the server is running. The backup uses
+SQLite's online backup API, is written to a temporary file, and is atomically
+renamed after the copy completes:
+
+```sh
+ssh-key-sync-server backup \
+  --output-directory /var/lib/ssh-key-sync/backups \
+  --retain 14
+```
+
+Enable the daily backup timer with the server installer:
+
+```sh
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install-server.sh |
+  sudo sh -s -- --enable-backup-timer
+```
+
+Before restoring a snapshot, stop the server and keep an SSH recovery session
+open. Replace only `/var/lib/ssh-key-sync/state.db` with the selected snapshot,
+preserve ownership by `ssh-key-sync`, start the service, and verify health plus
+an enrollment or token listing. Backups contain token digests and audit data,
+not plaintext machine tokens, but should still be protected as private data.
+
 ## Token Management
 
 List tokens:

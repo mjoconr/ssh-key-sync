@@ -1,8 +1,8 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 
-use std::{path::Path, sync::Mutex};
+use std::{path::Path, sync::Mutex, time::Duration};
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, backup::Backup, params};
 use serde::Serialize;
 use ssh_key_sync_core::{new_token, token_digest, unix_now};
 
@@ -341,6 +341,14 @@ impl State {
             .collect()
     }
 
+    pub(crate) fn backup_to(&self, path: impl AsRef<Path>) -> rusqlite::Result<()> {
+        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let mut destination = Connection::open(path)?;
+        let backup = Backup::new(&db, &mut destination)?;
+        backup.run_to_completion(5, Duration::from_millis(250), None)?;
+        Ok(())
+    }
+
     fn map_enrollment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Enrollment> {
         Ok(Enrollment {
             id: row.get(0)?,
@@ -498,5 +506,29 @@ mod tests {
         assert_eq!(records[0].action, "enrollment.approve");
         assert_eq!(records[1].action, "enrollment.request");
         assert_eq!(state.list_audit(None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn state_backup_is_a_consistent_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State::open(dir.path().join("state.db")).unwrap();
+        state
+            .create_enrollment(
+                "host-a",
+                "host-a",
+                &[],
+                "192.0.2.1",
+                &token_digest("secret"),
+                &token_digest("token"),
+            )
+            .unwrap();
+        let backup = dir.path().join("backup.db");
+        state.backup_to(&backup).unwrap();
+
+        let copied = Connection::open(backup).unwrap();
+        let count: i64 = copied
+            .query_row("SELECT COUNT(*) FROM enrollments", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
     }
 }

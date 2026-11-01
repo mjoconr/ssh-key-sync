@@ -1,0 +1,18 @@
+[Unit]
+Description=Back up SSH Key Sync state
+
+[Service]
+Type=oneshot
+User=ssh-key-sync
+Group=ssh-key-sync
+StateDirectory=ssh-key-sync
+ExecStart=/usr/local/bin/ssh-key-sync-server backup --output-directory /var/lib/ssh-key-sync/backups --retain 14
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true

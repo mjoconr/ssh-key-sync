@@ -104,9 +104,12 @@ Enrollment is an approval workflow, not automatic trust:
 6. The client stores the token with mode `0600` and deletes the enrollment
    secret after successful completion.
 
-Pending requests expire automatically and cannot retrieve keys. The queue is
-bounded and rate-limited to limit spam. The administrator should verify the
-request code out-of-band when the machine or network path is not already known.
+Pending requests expire automatically and cannot retrieve non-public groups. An
+explicitly public default group may be fetched before approval, allowing a new
+machine to become useful while an optional restricted-group assignment is
+pending. The queue is bounded and rate-limited to limit spam. The administrator
+should verify the request code out-of-band when the machine or network path is
+not already known.
 
 The administrator view displays two separately labelled address groups:
 
@@ -137,6 +140,15 @@ Enrollment always issues a new unique machine token, even when several machines
 use the same group. Shared group tokens remain available for manually
 pre-provisioned fleets, but an existing token cannot be recovered from its
 stored digest.
+
+Enrollment can therefore begin in one of two modes:
+
+- Public default mode fetches the signed default group anonymously. It may also
+  submit an enrollment request for a restricted group assignment.
+- Restricted mode waits for approval before fetching keys.
+
+The client configuration must state the selected mode explicitly. It must not
+silently downgrade from a failed restricted request to the public default group.
 
 Example administrative commands:
 

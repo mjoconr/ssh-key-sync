@@ -23,6 +23,7 @@ system.
   versions, machine records, group and machine token digests, and response
   documents.
 - Model anonymous signed groups separately from authenticated machine groups.
+- Allow anonymous access only to groups marked public by explicit configuration.
 - Implement the native configuration parser with reserved documentation values.
 - Implement a legacy configuration importer.
 - Implement most-specific CIDR matching and deterministic key ordering.

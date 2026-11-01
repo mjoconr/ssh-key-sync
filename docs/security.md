@@ -50,7 +50,9 @@ limit which public sets are exposed, so they remain separately configurable.
 - Never send a reusable machine bearer token over plaintext HTTP.
 - Never store a plaintext machine token in server configuration or logs.
 - Never approve enrollment automatically.
-- Never let an enrollment request retrieve keys before approval.
+- Never let an unapproved enrollment request access a non-public group or
+  machine-specific rule.
+- Never silently downgrade a failed restricted-group request to a public group.
 - Never treat an enrollment hostname or source address as verified identity.
 - Never trust or authorize a client-reported local interface address.
 - Never store a plaintext enrollment secret or issued token.

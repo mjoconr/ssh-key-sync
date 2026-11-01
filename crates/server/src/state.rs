@@ -33,6 +33,9 @@ pub(crate) struct TokenRecord {
     pub group: String,
     pub created_at: u64,
     pub revoked_at: Option<u64>,
+    pub last_used_at: Option<u64>,
+    pub last_source_ip: Option<String>,
+    pub last_client_version: Option<String>,
 }
 
 impl State {
@@ -49,11 +52,13 @@ impl State {
                token_digest TEXT NOT NULL UNIQUE, name TEXT NOT NULL, hostname TEXT NOT NULL,
                local_addresses TEXT NOT NULL, source_ip TEXT NOT NULL,
                status TEXT NOT NULL, group_name TEXT, created_at INTEGER NOT NULL,
-               expires_at INTEGER NOT NULL, decided_at INTEGER
+               expires_at INTEGER NOT NULL, decided_at INTEGER, hidden_at INTEGER
              );
              CREATE TABLE IF NOT EXISTS machine_tokens (
                id TEXT PRIMARY KEY, digest TEXT NOT NULL UNIQUE, label TEXT NOT NULL,
-               group_name TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER
+               group_name TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER,
+               hidden_at INTEGER, last_used_at INTEGER, last_source_ip TEXT,
+               last_client_version TEXT
              );
              CREATE TABLE IF NOT EXISTS audit (
                id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL,
@@ -62,6 +67,9 @@ impl State {
         )?;
         ensure_column(&db, "enrollments", "hidden_at", "INTEGER")?;
         ensure_column(&db, "machine_tokens", "hidden_at", "INTEGER")?;
+        ensure_column(&db, "machine_tokens", "last_used_at", "INTEGER")?;
+        ensure_column(&db, "machine_tokens", "last_source_ip", "TEXT")?;
+        ensure_column(&db, "machine_tokens", "last_client_version", "TEXT")?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -78,9 +86,22 @@ impl State {
         let code = id.chars().take(8).collect::<String>().to_ascii_uppercase();
         let now = unix_now();
         let expires = now + REQUEST_TTL;
+        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let recent: i64 = db.query_row(
+            "SELECT COUNT(*) FROM enrollments WHERE source_ip=?1 AND created_at>=?2",
+            params![source_ip, now.saturating_sub(600) as i64],
+            |row| row.get(0),
+        )?;
+        let pending: i64 = db.query_row(
+            "SELECT COUNT(*) FROM enrollments WHERE status='pending' AND expires_at>=?1",
+            [now as i64],
+            |row| row.get(0),
+        )?;
+        if recent >= 3 || pending >= 100 {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let addresses = serde_json::to_string(local_addresses)
             .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
-        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
         db.execute(
             "INSERT INTO enrollments (id,code,secret_digest,token_digest,name,hostname,local_addresses,source_ip,status,created_at,expires_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'pending',?9,?10)",
@@ -198,21 +219,34 @@ impl State {
         Ok(true)
     }
 
-    pub(crate) fn group_for_token(&self, plaintext: &str) -> rusqlite::Result<Option<String>> {
+    pub(crate) fn group_for_token(
+        &self,
+        plaintext: &str,
+        source_ip: &str,
+        client_version: &str,
+    ) -> rusqlite::Result<Option<String>> {
         let digest = token_digest(plaintext);
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
-        db.query_row(
-            "SELECT group_name FROM machine_tokens WHERE digest=?1 AND revoked_at IS NULL",
-            [digest],
-            |row| row.get(0),
-        )
-        .optional()
+        let group = db
+            .query_row(
+                "SELECT group_name FROM machine_tokens WHERE digest=?1 AND revoked_at IS NULL",
+                [digest],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if group.is_some() {
+            db.execute(
+                "UPDATE machine_tokens SET last_used_at=?1,last_source_ip=?2,last_client_version=?3 WHERE digest=?4",
+                params![unix_now() as i64, source_ip, client_version, token_digest(plaintext)],
+            )?;
+        }
+        Ok(group)
     }
 
     pub(crate) fn list_tokens(&self) -> rusqlite::Result<Vec<TokenRecord>> {
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
         let mut statement = db.prepare(
-            "SELECT id,label,group_name,created_at,revoked_at FROM machine_tokens
+            "SELECT id,label,group_name,created_at,revoked_at,last_used_at,last_source_ip,last_client_version FROM machine_tokens
              WHERE hidden_at IS NULL ORDER BY created_at DESC",
         )?;
         statement
@@ -223,6 +257,9 @@ impl State {
                     group: row.get(2)?,
                     created_at: row.get::<_, i64>(3)? as u64,
                     revoked_at: row.get::<_, Option<i64>>(4)?.map(|value| value as u64),
+                    last_used_at: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                    last_source_ip: row.get(6)?,
+                    last_client_version: row.get(7)?,
                 })
             })?
             .collect()
@@ -336,11 +373,19 @@ mod tests {
         assert!(state.enrollment_for_secret(&id, secret).unwrap().is_some());
         assert!(state.approve(&id, "restricted").unwrap());
         assert_eq!(
-            state.group_for_token(token).unwrap().as_deref(),
+            state
+                .group_for_token(token, "192.0.2.10", "test")
+                .unwrap()
+                .as_deref(),
             Some("restricted")
         );
         assert!(state.revoke_token(&format!("machine-{id}")).unwrap());
-        assert!(state.group_for_token(token).unwrap().is_none());
+        assert!(
+            state
+                .group_for_token(token, "192.0.2.10", "test")
+                .unwrap()
+                .is_none()
+        );
         assert!(state.hide_token(&format!("machine-{id}")).unwrap());
         assert!(state.list_tokens().unwrap().is_empty());
         assert!(state.retire_enrollment(&id).unwrap());
@@ -362,5 +407,35 @@ mod tests {
             )
             .unwrap();
         assert!(state.enrollment_for_secret(&id, "wrong").unwrap().is_none());
+    }
+
+    #[test]
+    fn enrollment_requests_are_rate_limited_by_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State::open(dir.path().join("state.db")).unwrap();
+        for index in 0..3 {
+            state
+                .create_enrollment(
+                    &format!("host-{index}"),
+                    "host",
+                    &[],
+                    "192.0.2.1",
+                    &token_digest(&format!("secret-{index}")),
+                    &token_digest(&format!("token-{index}")),
+                )
+                .unwrap();
+        }
+        assert!(
+            state
+                .create_enrollment(
+                    "host-4",
+                    "host",
+                    &[],
+                    "192.0.2.1",
+                    &token_digest("secret-4"),
+                    &token_digest("token-4"),
+                )
+                .is_err()
+        );
     }
 }

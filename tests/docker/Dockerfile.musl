@@ -3,7 +3,10 @@ FROM rust:1.99-alpine AS builder
 RUN apk add --no-cache build-base
 WORKDIR /src
 COPY . .
-RUN cargo build --locked --release -p ssh-key-sync-client
+RUN cargo build --locked --release \
+    -p ssh-key-sync-client \
+    -p ssh-key-sync-server
 
 FROM scratch
 COPY --from=builder /src/target/release/ssh-key-sync-client /ssh-key-sync-client
+COPY --from=builder /src/target/release/ssh-key-sync-server /ssh-key-sync-server

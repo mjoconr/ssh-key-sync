@@ -22,6 +22,7 @@ use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod state;
+mod tui;
 use state::State;
 
 #[derive(Debug, Parser)]
@@ -60,6 +61,11 @@ enum Command {
     Token {
         #[command(subcommand)]
         command: TokenCommand,
+    },
+    /// Open the local administration terminal UI.
+    Tui {
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
     },
 }
 
@@ -275,6 +281,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         },
+        Command::Tui { config } => tui::run(config)?,
         Command::Serve { config } => run(config).await?,
     }
     Ok(())

@@ -425,15 +425,17 @@ mod tests {
                 )
                 .unwrap();
         }
-        assert!(state
-            .create_enrollment(
-                "host-4",
-                "host",
-                &[],
-                "192.0.2.1",
-                &token_digest("secret-4"),
-                &token_digest("token-4"),
-            )
-            .is_err());
+        assert!(
+            state
+                .create_enrollment(
+                    "host-4",
+                    "host",
+                    &[],
+                    "192.0.2.1",
+                    &token_digest("secret-4"),
+                    &token_digest("token-4"),
+                )
+                .is_err()
+        );
     }
 }

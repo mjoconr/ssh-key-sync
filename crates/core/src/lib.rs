@@ -17,7 +17,7 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
 use ipnet::IpNet;
-use rand::{RngCore as _, rngs::OsRng};
+use rand::{Rng as _, rng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use ssh_key::PublicKey;
@@ -394,7 +394,7 @@ pub fn new_nonce() -> String {
 /// Generate a random base64url-encoded 32-byte value suitable for a token.
 pub fn new_token() -> String {
     let mut bytes = [0_u8; 32];
-    OsRng.fill_bytes(&mut bytes);
+    rng().fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

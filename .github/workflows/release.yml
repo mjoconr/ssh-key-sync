@@ -9,8 +9,27 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    name: Validate release version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Match tag to package version
+        run: |
+          package_version="$(
+            cargo metadata --locked --no-deps --format-version 1 |
+              jq -r '.packages[] | select(.name == "ssh-key-sync-server") | .version'
+          )"
+          test "$GITHUB_REF_NAME" = "v$package_version" || {
+            echo "Tag $GITHUB_REF_NAME does not match package version $package_version" >&2
+            exit 1
+          }
+
   build:
     name: Build ${{ matrix.target }}
+    needs: validate
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: true

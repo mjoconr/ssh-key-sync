@@ -2596,7 +2596,7 @@ dependencies = [
 name = "ssh-key-sync-core"
 version = "0.6.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "ed25519-dalek",
  "ipnet",
  "rand 0.8.8",
@@ -2616,7 +2616,7 @@ version = "0.6.0"
 dependencies = [
  "arc-swap",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "clap",
  "crossterm",
  "ed25519-dalek",

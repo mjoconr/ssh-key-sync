@@ -28,7 +28,7 @@ unwrap_used = "warn"
 
 [workspace.dependencies]
 ssh-key-sync-core = { version = "0.6.0", path = "crates/core" }
-base64 = "0.22"
+base64 = "0.23"
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 ipnet = { version = "2.12", features = ["serde"] }
 rand = "0.8"

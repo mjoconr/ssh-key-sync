@@ -56,7 +56,7 @@ There is no installed verifier on the first machine, so verify with a trusted
 binary built from the reviewed tag:
 
 ```sh
-export SSH_KEY_SYNC_VERSION="v0.4.10"
+export SSH_KEY_SYNC_VERSION="v0.4.11"
 export SSH_KEY_SYNC_RELEASE_VERIFIER="$PWD/target/release/ssh-key-sync-server"
 export SSH_KEY_SYNC_SERVER_URL="https://keys.example.net"
 export SSH_KEY_SYNC_SIGNING_KEY_SHA256="SERVER_SIGNING_KEY_FINGERPRINT"

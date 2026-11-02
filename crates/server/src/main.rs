@@ -457,10 +457,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 config,
             } => {
                 let config = Config::load(config)?;
-                if !config.groups.contains_key(&group) {
+                let Some(group_config) = config.groups.get(&group) else {
                     return Err(format!("unknown group: {group}").into());
-                }
-                if open_state(&config)?.approve(&request_id, &group)? {
+                };
+                let expires_at = group_config
+                    .token_ttl_days
+                    .map(|days| unix_now().saturating_add(days.saturating_mul(86_400)));
+                if open_state(&config)?.approve(&request_id, &group, expires_at)? {
                     println!("approved {request_id} into {group}");
                 } else {
                     return Err("request is missing, expired, or already decided".into());
@@ -502,16 +505,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         sanitize_metadata(token.last_source_ip.as_deref().unwrap_or("-"), 64);
                     let client =
                         sanitize_metadata(token.last_client_version.as_deref().unwrap_or("-"), 128);
+                    let status = if token.revoked_at.is_some() {
+                        "revoked"
+                    } else if token.expires_at.is_some_and(|expiry| expiry <= unix_now()) {
+                        "expired"
+                    } else {
+                        "active"
+                    };
                     println!(
-                        "{} {} {} {} last_used={} source={} client={}",
+                        "{} {} {} {} expires={} last_used={} source={} client={}",
                         id,
                         group,
                         label,
-                        if token.revoked_at.is_some() {
-                            "revoked"
-                        } else {
-                            "active"
-                        },
+                        status,
+                        token
+                            .expires_at
+                            .map_or_else(|| "-".into(), |value| value.to_string()),
                         token
                             .last_used_at
                             .map_or_else(|| "-".into(), |value| value.to_string()),

@@ -436,6 +436,18 @@ tokens, but should still be protected as private data.
 
 ## Token Management
 
+Set an optional token lifetime on a private group in `server.toml`:
+
+```toml
+[groups.restricted]
+visibility = "private"
+token_ttl_days = 90
+```
+
+The setting applies to enrollments approved after the configuration reloads.
+Existing tokens remain valid until revoked, so enable a TTL before enrolling a
+new machine. Values must be between 1 and 3650 days.
+
 List tokens:
 
 ```sh
@@ -458,6 +470,11 @@ Revocation prevents that machine from fetching its group again. It does not
 remove keys already present locally. To remove access immediately, also remove
 the corresponding public-key assignment from the group configuration and
 perform a successful sync using another authorized client.
+
+To rotate a token without an access gap, use the Hostname Change replacement
+flow below and approve the new enrollment into the same group. Complete a signed
+sync and verify a new SSH session before retiring the old enrollment. Expired
+tokens can be hidden after their expiry time.
 
 ## Hostname Change
 

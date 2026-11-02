@@ -39,6 +39,7 @@ pub(crate) struct TokenRecord {
     pub label: String,
     pub group: String,
     pub created_at: u64,
+    pub expires_at: Option<u64>,
     pub revoked_at: Option<u64>,
     pub last_used_at: Option<u64>,
     pub last_source_ip: Option<String>,
@@ -71,7 +72,8 @@ impl State {
              );
              CREATE TABLE IF NOT EXISTS machine_tokens (
                id TEXT PRIMARY KEY, digest TEXT NOT NULL UNIQUE, label TEXT NOT NULL,
-               group_name TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER,
+               group_name TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER,
+               revoked_at INTEGER,
                hidden_at INTEGER, last_used_at INTEGER, last_source_ip TEXT,
                last_client_version TEXT
              );
@@ -82,6 +84,7 @@ impl State {
         )?;
         ensure_column(&db, "enrollments", "hidden_at", "INTEGER")?;
         ensure_column(&db, "machine_tokens", "hidden_at", "INTEGER")?;
+        ensure_column(&db, "machine_tokens", "expires_at", "INTEGER")?;
         ensure_column(&db, "machine_tokens", "last_used_at", "INTEGER")?;
         ensure_column(&db, "machine_tokens", "last_source_ip", "TEXT")?;
         ensure_column(&db, "machine_tokens", "last_client_version", "TEXT")?;
@@ -157,7 +160,12 @@ impl State {
         statement.query_map([], Self::map_enrollment)?.collect()
     }
 
-    pub(crate) fn approve(&self, id: &str, group: &str) -> rusqlite::Result<bool> {
+    pub(crate) fn approve(
+        &self,
+        id: &str,
+        group: &str,
+        expires_at: Option<u64>,
+    ) -> rusqlite::Result<bool> {
         let now = unix_now();
         let mut db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
         let tx = db.transaction()?;
@@ -179,11 +187,23 @@ impl State {
             params![group, now as i64, id],
         )?;
         tx.execute(
-            "INSERT INTO machine_tokens (id,digest,label,group_name,created_at)
-             VALUES (?1,?2,?3,?4,?5)",
-            params![format!("machine-{id}"), digest, name, group, now as i64],
+            "INSERT INTO machine_tokens
+               (id,digest,label,group_name,created_at,expires_at)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![
+                format!("machine-{id}"),
+                digest,
+                name,
+                group,
+                now as i64,
+                expires_at.map(|value| value as i64)
+            ],
         )?;
-        Self::audit_locked(&tx, "enrollment.approve", id, group)?;
+        let audit_details = expires_at.map_or_else(
+            || group.to_owned(),
+            |expiry| format!("{group}; expires_at={expiry}"),
+        );
+        Self::audit_locked(&tx, "enrollment.approve", id, &audit_details)?;
         tx.commit()?;
         Ok(true)
     }
@@ -248,17 +268,20 @@ impl State {
     ) -> rusqlite::Result<Option<String>> {
         let digest = token_digest(plaintext);
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let now = unix_now();
         let group = db
             .query_row(
-                "SELECT group_name FROM machine_tokens WHERE digest=?1 AND revoked_at IS NULL",
-                [digest],
+                "SELECT group_name FROM machine_tokens
+                 WHERE digest=?1 AND revoked_at IS NULL
+                   AND (expires_at IS NULL OR expires_at>?2)",
+                params![digest, now as i64],
                 |row| row.get(0),
             )
             .optional()?;
         if group.is_some() {
             db.execute(
                 "UPDATE machine_tokens SET last_used_at=?1,last_source_ip=?2,last_client_version=?3 WHERE digest=?4",
-                params![unix_now() as i64, source_ip, client_version, token_digest(plaintext)],
+                params![now as i64, source_ip, client_version, digest],
             )?;
         }
         Ok(group)
@@ -267,7 +290,7 @@ impl State {
     pub(crate) fn list_tokens(&self) -> rusqlite::Result<Vec<TokenRecord>> {
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
         let mut statement = db.prepare(
-            "SELECT id,label,group_name,created_at,revoked_at,last_used_at,last_source_ip,last_client_version FROM machine_tokens
+            "SELECT id,label,group_name,created_at,expires_at,revoked_at,last_used_at,last_source_ip,last_client_version FROM machine_tokens
              WHERE hidden_at IS NULL ORDER BY created_at DESC",
         )?;
         statement
@@ -277,10 +300,11 @@ impl State {
                     label: row.get(1)?,
                     group: row.get(2)?,
                     created_at: row.get::<_, i64>(3)? as u64,
-                    revoked_at: row.get::<_, Option<i64>>(4)?.map(|value| value as u64),
-                    last_used_at: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
-                    last_source_ip: row.get(6)?,
-                    last_client_version: row.get(7)?,
+                    expires_at: row.get::<_, Option<i64>>(4)?.map(|value| value as u64),
+                    revoked_at: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+                    last_used_at: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
+                    last_source_ip: row.get(7)?,
+                    last_client_version: row.get(8)?,
                 })
             })?
             .collect()
@@ -314,7 +338,9 @@ impl State {
         let now = unix_now();
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
         let changed = db.execute(
-            "UPDATE machine_tokens SET hidden_at=?1 WHERE id=?2 AND hidden_at IS NULL AND revoked_at IS NOT NULL",
+            "UPDATE machine_tokens SET hidden_at=?1
+             WHERE id=?2 AND hidden_at IS NULL
+               AND (revoked_at IS NOT NULL OR (expires_at IS NOT NULL AND expires_at<=?1))",
             params![now as i64, id],
         )?;
         if changed > 0 {
@@ -329,8 +355,9 @@ impl State {
             "SELECT EXISTS(
                SELECT 1 FROM machine_tokens
                WHERE group_name=?1 AND revoked_at IS NULL
+                 AND (expires_at IS NULL OR expires_at>?2)
              )",
-            [group],
+            params![group, unix_now() as i64],
             |row| row.get(0),
         )
     }
@@ -451,7 +478,7 @@ mod tests {
             )
             .unwrap();
         assert!(state.enrollment_for_secret(&id, secret).unwrap().is_some());
-        assert!(state.approve(&id, "restricted").unwrap());
+        assert!(state.approve(&id, "restricted", None).unwrap());
         assert_eq!(
             state
                 .group_for_token(token, "192.0.2.10", "test")
@@ -470,6 +497,53 @@ mod tests {
         assert!(state.list_tokens().unwrap().is_empty());
         assert!(state.retire_enrollment(&id).unwrap());
         assert!(state.list_enrollments().unwrap().is_empty());
+    }
+
+    #[test]
+    fn expired_machine_tokens_are_rejected_and_can_be_hidden() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State::open(dir.path().join("state.db")).unwrap();
+        let token = "expiring-machine-token";
+        let (id, _, _) = state
+            .create_enrollment(
+                "host-a",
+                "host-a",
+                &[],
+                "192.0.2.1",
+                &token_digest("secret"),
+                &token_digest(token),
+            )
+            .unwrap();
+        assert!(
+            state
+                .approve(&id, "restricted", Some(unix_now().saturating_add(60)))
+                .unwrap()
+        );
+        assert_eq!(
+            state
+                .group_for_token(token, "192.0.2.10", "test")
+                .unwrap()
+                .as_deref(),
+            Some("restricted")
+        );
+        state
+            .db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE machine_tokens SET expires_at=?1 WHERE id=?2",
+                params![unix_now() as i64 - 1, format!("machine-{id}")],
+            )
+            .unwrap();
+        assert!(
+            state
+                .group_for_token(token, "192.0.2.10", "test")
+                .unwrap()
+                .is_none()
+        );
+        assert!(!state.group_has_active_tokens("restricted").unwrap());
+        assert!(state.hide_token(&format!("machine-{id}")).unwrap());
+        assert!(state.list_tokens().unwrap().is_empty());
     }
 
     #[test]
@@ -533,7 +607,7 @@ mod tests {
                 &token_digest("token"),
             )
             .unwrap();
-        assert!(state.approve(&id, "restricted").unwrap());
+        assert!(state.approve(&id, "restricted", None).unwrap());
 
         let records = state.list_audit(Some(&id)).unwrap();
         assert_eq!(records[0].action, "enrollment.approve");

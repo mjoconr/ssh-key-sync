@@ -79,11 +79,12 @@ even though enrollment has application-level limits.
 
 ### Token Lifetime
 
-Approved machine tokens remain active until revoked. A stolen token can read its
-group's public keys and reveal inventory metadata, but it cannot make a native
-client install attacker-controlled keys because the server response still needs
-the signing key. Token expiry, planned rotation and stale-token reporting are
-still planned work.
+Groups may set an optional token lifetime. Deployments that do not enable it
+retain the previous behaviour, where approved machine tokens remain active until
+revoked. A stolen token can read its group's public keys and reveal inventory
+metadata, but it cannot make a native client install attacker-controlled keys
+because the server response still needs the signing key. Pre-expiry warnings and
+stale-token reporting are still planned work.
 
 ### Release Bootstrap
 

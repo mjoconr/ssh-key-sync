@@ -36,6 +36,7 @@ impl Editor {
                 } else {
                     Visibility::Private
                 },
+                token_ttl_days: None,
                 legacy_xmlrpc: false,
                 cidrs: vec![],
             },

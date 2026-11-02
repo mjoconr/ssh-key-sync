@@ -24,7 +24,6 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use ed25519_dalek::SigningKey;
-use rand::rngs::OsRng;
 use serde::Deserialize;
 use serde::Serialize;
 use ssh_key_sync_core::{
@@ -378,7 +377,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::GenerateKeys { output } => {
             std::fs::create_dir_all(&output)?;
-            let signing = SigningKey::generate(&mut OsRng);
+            let signing = SigningKey::generate(&mut rand::rng());
             write_new_file(&output.join("signing.key"), &signing.to_bytes(), 0o600)?;
             write_new_file(
                 &output.join("signing.pub"),
@@ -389,7 +388,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::ReleaseKeygen { output } => {
             std::fs::create_dir_all(&output)?;
-            let signing = SigningKey::generate(&mut OsRng);
+            let signing = SigningKey::generate(&mut rand::rng());
             write_new_file(&output.join("release.key"), &signing.to_bytes(), 0o600)?;
             write_new_file(
                 &output.join("release.pub"),

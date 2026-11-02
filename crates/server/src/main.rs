@@ -1,11 +1,12 @@
 //! SSH Key Sync server and administrative command line.
 
 use std::{
-    fs::OpenOptions,
-    io::Write as _,
+    fs::{self, File, OpenOptions},
+    io::{self, Write as _},
     net::SocketAddr,
-    os::unix::fs::OpenOptionsExt as _,
+    os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _, chown},
     path::{Path, PathBuf},
+    process::Command as ProcessCommand,
     sync::Arc,
 };
 
@@ -133,6 +134,26 @@ enum Command {
         /// Number of matching snapshots to retain.
         #[arg(long, default_value_t = 14)]
         retain: usize,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
+    /// Verify that a state snapshot is a compatible SQLite backup.
+    BackupVerify {
+        /// Snapshot to inspect.
+        #[arg(long)]
+        input: PathBuf,
+    },
+    /// Restore a state snapshot while the server service is stopped.
+    BackupRestore {
+        /// Snapshot to restore.
+        #[arg(long)]
+        input: PathBuf,
+        /// Confirm the service is stopped and the snapshot has been reviewed.
+        #[arg(long)]
+        confirm: bool,
+        /// Directory receiving a safety snapshot of the current state.
+        #[arg(long, default_value = "/var/lib/ssh-key-sync/backups")]
+        pre_restore_directory: PathBuf,
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
     },
@@ -327,11 +348,16 @@ struct EnrollmentStatus {
 }
 
 fn open_state(config: &Config) -> Result<State, Box<dyn std::error::Error>> {
-    let path = config
-        .state_file
-        .as_deref()
-        .unwrap_or("/var/lib/ssh-key-sync/state.db");
-    Ok(State::open(path)?)
+    Ok(State::open(state_path(config))?)
+}
+
+fn state_path(config: &Config) -> &Path {
+    Path::new(
+        config
+            .state_file
+            .as_deref()
+            .unwrap_or("/var/lib/ssh-key-sync/state.db"),
+    )
 }
 
 #[tokio::main]
@@ -645,6 +671,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             prune_backups(&output_directory, retain)?;
             println!("{}", output.display());
         }
+        Command::BackupVerify { input } => {
+            State::verify_backup(&input)?;
+            println!("backup is valid: {}", input.display());
+        }
+        Command::BackupRestore {
+            input,
+            confirm,
+            pre_restore_directory,
+            config,
+        } => {
+            if !confirm {
+                return Err("--confirm is required for restore".into());
+            }
+            let config = Config::load(config)?;
+            require_server_stopped()?;
+            let pre_restore =
+                restore_backup_database(&input, state_path(&config), &pre_restore_directory)?;
+            if let Some(path) = pre_restore {
+                println!("pre-restore backup: {}", path.display());
+            }
+            println!("restored {}", state_path(&config).display());
+        }
         Command::Tui { config } => tui::run(config)?,
         Command::Serve { config } => run(config).await?,
     }
@@ -674,6 +722,76 @@ fn prune_backups(
         std::fs::remove_file(path)?;
     }
     Ok(())
+}
+
+fn require_server_stopped() -> Result<(), Box<dyn std::error::Error>> {
+    let status = ProcessCommand::new("systemctl")
+        .args(["is-active", "--quiet", "ssh-key-sync-server.service"])
+        .status()
+        .map_err(|error| format!("could not verify the server service state: {error}"))?;
+    if status.success() {
+        return Err("stop ssh-key-sync-server.service before restoring state".into());
+    }
+    Ok(())
+}
+
+fn restore_backup_database(
+    input: &Path,
+    destination: &Path,
+    pre_restore_directory: &Path,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    State::verify_backup(input)?;
+    if let Ok(metadata) = fs::symlink_metadata(destination)
+        && !metadata.file_type().is_file()
+    {
+        return Err("state destination must be a regular file".into());
+    }
+
+    let pre_restore = if destination.exists() {
+        fs::create_dir_all(pre_restore_directory)?;
+        let path = pre_restore_directory.join(format!(
+            "state-before-restore-{}-{}.db",
+            unix_now(),
+            std::process::id()
+        ));
+        let current = State::open(destination)?;
+        current.backup_to(&path)?;
+        drop(current);
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        Some(path)
+    } else {
+        None
+    };
+
+    let parent = destination
+        .parent()
+        .ok_or("state destination has no parent directory")?;
+    fs::create_dir_all(parent)?;
+    let owner = fs::symlink_metadata(destination)
+        .or_else(|_| fs::symlink_metadata(parent))?
+        .uid();
+    let group = fs::symlink_metadata(destination)
+        .or_else(|_| fs::symlink_metadata(parent))?
+        .gid();
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
+    let mut source = File::open(input)?;
+    io::copy(&mut source, temporary.as_file_mut())?;
+    temporary
+        .as_file()
+        .set_permissions(fs::Permissions::from_mode(0o600))?;
+    chown(temporary.path(), Some(owner), Some(group))?;
+    temporary.as_file_mut().sync_all()?;
+
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", destination.display()));
+        if sidecar.exists() {
+            fs::remove_file(sidecar)?;
+        }
+    }
+    temporary.persist(destination)?;
+    File::open(parent)?.sync_all()?;
+    State::verify_backup(destination)?;
+    Ok(pre_restore)
 }
 
 fn write_new_file(
@@ -1121,6 +1239,63 @@ mod tests {
         ));
         assert!(
             Cli::try_parse_from(["ssh-key-sync-server", "group", "set-legacy", "oeg"]).is_err()
+        );
+    }
+
+    #[test]
+    fn restore_backup_replaces_state_and_keeps_a_pre_restore_snapshot() {
+        let directory = tempfile::tempdir().unwrap();
+        let source_path = directory.path().join("source.db");
+        let source = State::open(&source_path).unwrap();
+        source
+            .create_enrollment(
+                "restored-host",
+                "restored-host",
+                &[],
+                "192.0.2.10",
+                &token_digest("restore-secret"),
+                &token_digest("restore-token"),
+            )
+            .unwrap();
+        let snapshot = directory.path().join("snapshot.db");
+        source.backup_to(&snapshot).unwrap();
+        drop(source);
+
+        let destination = directory.path().join("state.db");
+        let current = State::open(&destination).unwrap();
+        current
+            .create_enrollment(
+                "current-host",
+                "current-host",
+                &[],
+                "192.0.2.20",
+                &token_digest("current-secret"),
+                &token_digest("current-token"),
+            )
+            .unwrap();
+        drop(current);
+
+        let pre_restore_directory = directory.path().join("pre-restore");
+        let pre_restore = restore_backup_database(&snapshot, &destination, &pre_restore_directory)
+            .unwrap()
+            .unwrap();
+        let restored = State::open(&destination).unwrap();
+        let enrollments = restored.list_enrollments().unwrap();
+        assert_eq!(enrollments.len(), 1);
+        assert_eq!(enrollments[0].name, "restored-host");
+        drop(restored);
+
+        let previous = State::open(&pre_restore).unwrap();
+        let enrollments = previous.list_enrollments().unwrap();
+        assert_eq!(enrollments.len(), 1);
+        assert_eq!(enrollments[0].name, "current-host");
+        assert_eq!(
+            std::fs::metadata(&destination)
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
         );
     }
 }

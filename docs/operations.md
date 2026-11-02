@@ -406,33 +406,36 @@ curl -fsSL \
   sudo sh -s -- --enable-backup-timer
 ```
 
-Before restoring a snapshot, stop the server and keep an SSH recovery session
-open:
+Verify a snapshot before relying on it:
+
+```sh
+ssh-key-sync-server backup-verify \
+  --input /var/lib/ssh-key-sync/backups/state-TIMESTAMP.db
+```
+
+The command runs SQLite's integrity check, verifies the required tables and
+opens a temporary copy through the current schema migration.
+
+To restore, keep an SSH recovery session open and stop the server:
 
 ```sh
 systemctl stop ssh-key-sync-server.service
-timestamp="$(date +%Y%m%dT%H%M%S)"
-mv /var/lib/ssh-key-sync/state.db \
-  "/var/lib/ssh-key-sync/state.db.before-restore-$timestamp"
-for suffix in -wal -shm; do
-  if [ -e "/var/lib/ssh-key-sync/state.db$suffix" ]; then
-    mv "/var/lib/ssh-key-sync/state.db$suffix" \
-      "/var/lib/ssh-key-sync/state.db$suffix.before-restore-$timestamp"
-  fi
-done
-install -o ssh-key-sync -g ssh-key-sync -m 0600 \
-  /var/lib/ssh-key-sync/backups/state-TIMESTAMP.db \
-  /var/lib/ssh-key-sync/state.db
+ssh-key-sync-server backup-restore \
+  --input /var/lib/ssh-key-sync/backups/state-TIMESTAMP.db \
+  --confirm
 systemctl start ssh-key-sync-server.service
+systemctl is-active ssh-key-sync-server.service
+curl -fsS http://127.0.0.1:18080/v1/health
 ssh-key-sync-server enrollment list
 ssh-key-sync-server token list
-curl -fsS http://127.0.0.1:18080/v1/health
 ```
 
-Moving `state.db-wal` and `state.db-shm` aside prevents stale transactions from
-being replayed against the restored database. Do not restore while the server
-is running. Backups contain token digests and audit data, not plaintext machine
-tokens, but should still be protected as private data.
+Restore refuses to proceed while the service is active. It creates a
+`state-before-restore-TIMESTAMP.db` snapshot first, preserves the destination
+owner and mode, removes stale WAL/SHM sidecars, atomically replaces the state,
+and verifies the restored file. Test the complete procedure against a
+non-production copy. Backups contain token digests and audit data, not plaintext
+machine tokens, but should still be protected as private data.
 
 ## Token Management
 

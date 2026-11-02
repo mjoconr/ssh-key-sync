@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use rusqlite::{Connection, OptionalExtension, backup::Backup, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, backup::Backup, params};
 use serde::Serialize;
 use ssh_key_sync_core::{new_token, token_digest, unix_now};
 
@@ -389,6 +389,37 @@ impl State {
         Ok(())
     }
 
+    pub(crate) fn verify_backup(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.file_type().is_file() {
+            return Err("backup must be a regular file".into());
+        }
+        let db = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        let integrity: String = db.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+        if integrity != "ok" {
+            return Err(format!("SQLite integrity check failed: {integrity}").into());
+        }
+        for table in ["enrollments", "machine_tokens", "audit"] {
+            db.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get::<_, i64>(0)
+            })?;
+        }
+        drop(db);
+
+        let directory = tempfile::tempdir()?;
+        let probe = directory.path().join("state.db");
+        std::fs::copy(path, &probe)?;
+        std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o600))?;
+        let migrated = Self::open(&probe)?;
+        migrated.list_enrollments()?;
+        migrated.list_tokens()?;
+        migrated.list_audit(None)?;
+        Ok(())
+    }
+
     fn map_enrollment(row: &rusqlite::Row<'_>) -> rusqlite::Result<Enrollment> {
         Ok(Enrollment {
             id: row.get(0)?,
@@ -642,6 +673,59 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM enrollments", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn backup_verification_accepts_current_state_and_rejects_corruption() {
+        let dir = tempfile::tempdir().unwrap();
+        let database = dir.path().join("state.db");
+        let state = State::open(&database).unwrap();
+        state
+            .create_enrollment(
+                "host-a",
+                "host-a",
+                &[],
+                "192.0.2.1",
+                &token_digest("secret"),
+                &token_digest("token"),
+            )
+            .unwrap();
+        let backup = dir.path().join("backup.db");
+        state.backup_to(&backup).unwrap();
+        State::verify_backup(&backup).unwrap();
+
+        std::fs::write(&backup, b"not a sqlite database").unwrap();
+        assert!(State::verify_backup(&backup).is_err());
+    }
+
+    #[test]
+    fn backup_verification_migrates_a_compatible_older_schema_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup = dir.path().join("old-backup.db");
+        let db = Connection::open(&backup).unwrap();
+        db.execute_batch(
+            "CREATE TABLE enrollments (
+               id TEXT PRIMARY KEY, code TEXT NOT NULL, secret_digest TEXT NOT NULL,
+               token_digest TEXT NOT NULL UNIQUE, name TEXT NOT NULL, hostname TEXT NOT NULL,
+               local_addresses TEXT NOT NULL, source_ip TEXT NOT NULL,
+               status TEXT NOT NULL, group_name TEXT, created_at INTEGER NOT NULL,
+               expires_at INTEGER NOT NULL, decided_at INTEGER
+             );
+             CREATE TABLE machine_tokens (
+               id TEXT PRIMARY KEY, digest TEXT NOT NULL UNIQUE, label TEXT NOT NULL,
+               group_name TEXT NOT NULL, created_at INTEGER NOT NULL, revoked_at INTEGER
+             );
+             CREATE TABLE audit (
+               id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL,
+               subject TEXT NOT NULL, details TEXT NOT NULL, created_at INTEGER NOT NULL
+             );",
+        )
+        .unwrap();
+        drop(db);
+
+        State::verify_backup(&backup).unwrap();
+        let migrated = State::open(&backup).unwrap();
+        assert!(migrated.list_tokens().unwrap().is_empty());
     }
 
     #[test]

@@ -41,6 +41,9 @@ changing configuration on clients.
 - `sshd` changes are validated and rolled back on failure.
 - Server state snapshots use SQLite's online backup API, private permissions,
   atomic rename, and bounded retention.
+- Restore verifies SQLite integrity and schema compatibility on a temporary
+  copy, refuses to run while the service is active, creates a pre-restore
+  snapshot, preserves destination ownership, and atomically replaces state.
 - Server configuration edits preserve ownership, validate before activation,
   keep a timestamped backup, and replace atomically.
 - Cleartext binding is loopback-only unless an explicit unsafe override is set.

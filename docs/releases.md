@@ -137,10 +137,12 @@ unset SSH_KEY_SYNC_RELEASE_VERIFIER
 Generate the key on a trusted workstation:
 
 ```sh
-export SSH_KEY_SYNC_RELEASE_KEY=".local/release-v1/release.key"
+export SSH_KEY_SYNC_RELEASE_KEY="$HOME/.config/ssh-key-sync/release-v1.key"
 export SSH_KEY_SYNC_RELEASE_PUBLIC_KEY="release-keys/release-v1.pub"
 
 cargo run -p ssh-key-sync-server -- release-keygen --output .local/release-v1
+install -d -m 0700 "$(dirname "$SSH_KEY_SYNC_RELEASE_KEY")"
+install -m 0600 .local/release-v1/release.key "$SSH_KEY_SYNC_RELEASE_KEY"
 install -m 0644 .local/release-v1/release.pub "$SSH_KEY_SYNC_RELEASE_PUBLIC_KEY"
 
 cargo run -p ssh-key-sync-server -- release-fingerprint \

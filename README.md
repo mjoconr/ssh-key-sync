@@ -24,7 +24,7 @@ configuration.
 
 ## Status
 
-Version `0.5.1` is the current release. It provides signed key responses,
+Version `0.6.3` is the current release. It provides signed key responses,
 enrollment and machine-token workflows, validated key/group/CIDR edits, a
 terminal administration interface, systemd and cron deployment, checksum-verified
 and cryptographically signed optional auto-updates, SQLite backups, and
@@ -64,6 +64,36 @@ curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/inst
 `--apply-ssh` uses the validated configuration and rollback behavior described
 above. Add `--enroll HOSTNAME` instead of `--enable-timer` for a private group.
 Add `--enable-auto-update` to enable the daily client upgrade timer.
+
+### Enable Client Auto-Update Later
+
+Re-run the client installer with `--enable-auto-update`. This preserves the
+existing server URL, token, signing keys, and managed `authorized_keys` path:
+
+```sh
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh |
+  sudo sh -s -- --enable-auto-update
+```
+
+Do not use `install-server.sh` or a separate `install-client.sh` script for
+this; the client auto-update timer is installed by `install.sh`.
+
+Verify it:
+
+```sh
+systemctl is-enabled ssh-key-sync-client-update.timer
+systemctl is-active ssh-key-sync-client-update.timer
+systemctl list-timers ssh-key-sync-client-update.timer --no-pager
+```
+
+Once enabled, later runs of `install.sh` preserve auto-update even when the
+flag is omitted. Disable it with:
+
+```sh
+sudo systemctl disable --now ssh-key-sync-client-update.timer
+sudo rm /etc/ssh-key-sync/client-auto-update
+```
 
 See [releases.md](docs/releases.md) before the first installation or before
 upgrading a pre-`v0.4.10` machine.

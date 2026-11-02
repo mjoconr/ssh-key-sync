@@ -434,8 +434,16 @@ Restore refuses to proceed while the service is active. It creates a
 `state-before-restore-TIMESTAMP.db` snapshot first, preserves the destination
 owner and mode, removes stale WAL/SHM sidecars, atomically replaces the state,
 and verifies the restored file. Test the complete procedure against a
-non-production copy. Backups contain token digests and audit data, not plaintext
-machine tokens, but should still be protected as private data.
+non-production copy. The rehearsal should prove:
+
+1. restore refuses to run while `ssh-key-sync-server.service` is active;
+2. a verified snapshot restores the older state;
+3. the automatic pre-restore snapshot preserves the state that was replaced;
+4. state ownership and mode remain correct; and
+5. the service restarts and its loopback health check succeeds.
+
+Backups contain token digests and audit data, not plaintext machine tokens, but
+should still be protected as private data.
 
 ## Token Management
 
@@ -499,6 +507,24 @@ credential has been tested.
 client. It selects keys from the source CIDR and cannot distinguish two
 machines behind the same NAT address. It is therefore not a replacement for
 machine tokens.
+
+Successful requests are recorded in the server journal with the selected group,
+observed source address and key count. Caddy access logs use a filter that
+removes `Authorization`, `Cookie` and inbound `X-Real-IP` headers. Review legacy
+activity with:
+
+```sh
+sudo scripts/legacy-activity.sh '30 days ago'
+sudo jq -r '
+  select(.request.uri | startswith("/xmlrpc"))
+  | [.ts, .request.client_ip, .request.method, .request.uri, .status]
+  | @tsv
+' /var/log/caddy/access.log
+```
+
+Choose an observation window before disabling `/xmlrpc/`. A zero successful
+request count is necessary but not sufficient: confirm the inventory and allow
+for monthly or rarely run cron clients.
 
 For legacy cron-only systems:
 

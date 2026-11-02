@@ -62,6 +62,9 @@ changing configuration on clients.
   architecture.
 - Dependency advisories, licenses, protected CI, CodeQL, secret scanning, and
   push protection are enabled.
+- Legacy XML-RPC activity records the selected group, source and key count
+  without request bodies. Proxy access logs remove authorization, cookie and
+  forwarded-address headers.
 - The optional reboot service runs only when the operating system has created
   `/run/reboot-required`.
 

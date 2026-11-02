@@ -152,6 +152,26 @@ cargo run -p ssh-key-sync-server -- release-fingerprint \
 Commit only `release-keys/release-v1.pub`. Keep the private key offline with
 mode `0600`; never commit it or put it in GitHub Actions.
 
+## Rehearse Key Rotation
+
+Run the isolated rotation and compromise test with a trusted server binary:
+
+```sh
+export SSH_KEY_SYNC_SERVER_BIN="/usr/local/bin/ssh-key-sync-server"
+sudo -E scripts/rehearse-release-keys.sh
+```
+
+The rehearsal creates two temporary keys, verifies that the new trust anchor
+rejects signatures from the old key, verifies a new-key signature, and confirms
+that a malicious manifest signed by the retired key is rejected. It does not
+modify `/etc/ssh-key-sync/release.pub`.
+
+For a real planned rotation, publish and compare the new fingerprint through an
+independent channel before replacing the installed trust anchor. For suspected
+key compromise, treat every release signed by the old key as untrusted and
+distribute the replacement fingerprint through a channel that does not depend
+on the compromised release key.
+
 ## Publish A Signed Release
 
 ```sh

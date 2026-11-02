@@ -22,7 +22,8 @@ ordered by operational risk, not by feature appeal.
 This was implemented in `v0.4.10`. The installers verify a signed
 `SHA256SUMS` against a separately installed release public key. Follow-up work:
 
-- exercise key rotation and compromise recovery against a staging repository;
+- production key rotation remains a controlled operational event after the
+  isolated rotation and compromise rehearsal;
 - consider a second signature from a hardware-backed key;
 - monitor failed signature and downgrade attempts.
 
@@ -31,7 +32,7 @@ This was implemented in `v0.4.10`. The installers verify a signed
 Backup verification, stopped-service restore, automatic pre-restore snapshots,
 and restore tests are implemented. Remaining work:
 
-- exercise restore and rollback against a production-like systemd installation;
+- repeat the restore rehearsal after state-schema or systemd-unit changes;
 - optional encrypted off-host backup guidance.
 
 ### Token Expiry And Rotation
@@ -74,8 +75,10 @@ private group.
 
 ### Monitoring And Notifications
 
-The service currently exposes health and writes systemd journal entries but
-does not publish metrics or notify an administrator. Add:
+Legacy XML-RPC requests are now identifiable by group and source in the server
+journal, with credential-filtered Caddy access logs and an operator summary
+command. The service otherwise writes systemd journal entries but does not
+publish metrics or notify an administrator. Add:
 
 - a privacy-preserving metrics endpoint for pending requests, active/revoked
   tokens, last successful sync, backup age, and update results;

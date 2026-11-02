@@ -65,6 +65,7 @@ jobs:
         run: |
           cp install.sh release/install.sh
           cp install-server.sh release/install-server.sh
+          cp release-keys/release-v1.pub release/release.pub
           cp deploy/ssh-key-sync-client.service release/
           cp deploy/ssh-key-sync-client.timer release/
           cp deploy/ssh-key-sync-client-update.service release/
@@ -77,11 +78,11 @@ jobs:
           cp deploy/ssh-key-sync-backup.service release/
           cp deploy/ssh-key-sync-backup.timer release/
           cd release
-          sha256sum ./*.tar.gz ./install.sh ./install-server.sh ./ssh-key-sync-*.service ./ssh-key-sync-*.timer |
+          sha256sum ./*.tar.gz ./install.sh ./install-server.sh ./release.pub ./ssh-key-sync-*.service ./ssh-key-sync-*.timer |
             sed 's#  \./#  #' > SHA256SUMS
 
-      - name: Publish release
+      - name: Publish draft release for offline signing
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes --latest
+        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --generate-notes --draft
 

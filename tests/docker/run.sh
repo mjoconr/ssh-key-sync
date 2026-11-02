@@ -16,6 +16,30 @@ trap cleanup EXIT
 
 cd "$test_root"
 ssh-key-sync-server generate-keys --output keys
+test "$(stat -c '%a' keys/signing.key)" = "600"
+test "$(stat -c '%a' keys/signing.pub)" = "644"
+
+ssh-key-sync-server release-keygen --output release-keys
+test "$(stat -c '%a' release-keys/release.key)" = "600"
+test "$(stat -c '%a' release-keys/release.pub)" = "644"
+printf 'test release manifest\n' > release-manifest
+ssh-key-sync-server release-sign \
+    --key release-keys/release.key \
+    --manifest release-manifest \
+    --output release-manifest.sig
+ssh-key-sync-client release-verify \
+    --manifest release-manifest \
+    --signature release-manifest.sig \
+    --public-key release-keys/release.pub
+printf 'tampered release manifest\n' > release-manifest.tampered
+if ssh-key-sync-client release-verify \
+    --manifest release-manifest.tampered \
+    --signature release-manifest.sig \
+    --public-key release-keys/release.pub
+then
+    echo "invalid release signature was accepted" >&2
+    exit 1
+fi
 
 token="docker-test-token"
 token_digest="sha256:$(printf '%s' "$token" | sha256sum | cut -d' ' -f1)"

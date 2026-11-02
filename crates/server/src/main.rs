@@ -1,6 +1,13 @@
 //! SSH Key Sync server and administrative command line.
 
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    fs::OpenOptions,
+    io::Write as _,
+    net::SocketAddr,
+    os::unix::fs::OpenOptionsExt as _,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use arc_swap::ArcSwap;
 use axum::{
@@ -16,8 +23,9 @@ use rand::rngs::OsRng;
 use serde::Deserialize;
 use serde::Serialize;
 use ssh_key_sync_core::{
-    Config, KeySetPayload, PROTOCOL_SCHEMA_VERSION, SignedEnvelope, load_signing_key, sign_payload,
-    token_digest, unix_now,
+    Config, KeySetPayload, PROTOCOL_SCHEMA_VERSION, SignedEnvelope, encode_release_verifying_key,
+    load_release_verifying_key, load_signing_key, release_verifying_key_fingerprint, sign_payload,
+    sign_release_manifest, token_digest, unix_now, verify_release_manifest,
 };
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
@@ -53,6 +61,42 @@ enum Command {
         /// Directory receiving signing.key and signing.pub.
         #[arg(long, default_value = ".")]
         output: PathBuf,
+    },
+    /// Generate a separate offline release-signing key pair.
+    ReleaseKeygen {
+        /// Directory receiving release.key and release.pub.
+        #[arg(long, default_value = ".")]
+        output: PathBuf,
+    },
+    /// Sign a release checksum manifest.
+    ReleaseSign {
+        /// Raw 32-byte Ed25519 release signing key.
+        #[arg(long)]
+        key: PathBuf,
+        /// Checksum manifest to sign.
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Output signature file.
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Verify a signed release checksum manifest.
+    ReleaseVerify {
+        /// Checksum manifest to verify.
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Detached release signature.
+        #[arg(long)]
+        signature: PathBuf,
+        /// Base64url-encoded release verification key.
+        #[arg(long)]
+        public_key: PathBuf,
+    },
+    /// Print the SHA-256 fingerprint of a release verification key.
+    ReleaseFingerprint {
+        /// Base64url-encoded release verification key.
+        #[arg(long)]
+        public_key: PathBuf,
     },
     /// Manage enrollment requests.
     Enrollment {
@@ -294,12 +338,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::GenerateKeys { output } => {
             std::fs::create_dir_all(&output)?;
             let signing = SigningKey::generate(&mut OsRng);
-            std::fs::write(output.join("signing.key"), signing.to_bytes())?;
-            std::fs::write(
-                output.join("signing.pub"),
-                signing.verifying_key().to_bytes(),
+            write_new_file(&output.join("signing.key"), &signing.to_bytes(), 0o600)?;
+            write_new_file(
+                &output.join("signing.pub"),
+                &signing.verifying_key().to_bytes(),
+                0o644,
             )?;
             println!("wrote signing.key and signing.pub to {}", output.display());
+        }
+        Command::ReleaseKeygen { output } => {
+            std::fs::create_dir_all(&output)?;
+            let signing = SigningKey::generate(&mut OsRng);
+            write_new_file(&output.join("release.key"), &signing.to_bytes(), 0o600)?;
+            write_new_file(
+                &output.join("release.pub"),
+                encode_release_verifying_key(&signing.verifying_key()).as_bytes(),
+                0o644,
+            )?;
+            println!("wrote release.key and release.pub to {}", output.display());
+        }
+        Command::ReleaseSign {
+            key,
+            manifest,
+            output,
+        } => {
+            let key = load_signing_key(key)?;
+            let manifest = std::fs::read(manifest)?;
+            let signature = sign_release_manifest(&manifest, &key);
+            std::fs::write(&output, format!("{signature}\n"))?;
+            println!("wrote release signature to {}", output.display());
+        }
+        Command::ReleaseVerify {
+            manifest,
+            signature,
+            public_key,
+        } => {
+            let manifest = std::fs::read(manifest)?;
+            let signature = std::fs::read_to_string(signature)?;
+            let key = load_release_verifying_key(public_key)?;
+            verify_release_manifest(&manifest, &signature, &key)?;
+            println!("release signature is valid");
+        }
+        Command::ReleaseFingerprint { public_key } => {
+            let key = load_release_verifying_key(public_key)?;
+            println!("{}", release_verifying_key_fingerprint(&key));
         }
         Command::Enrollment { command } => match command {
             EnrollmentCommand::List { config } => {
@@ -536,6 +618,21 @@ fn prune_backups(
     for path in backups.into_iter().skip(retain) {
         std::fs::remove_file(path)?;
     }
+    Ok(())
+}
+
+fn write_new_file(
+    path: &Path,
+    content: &[u8],
+    mode: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(mode)
+        .open(path)?;
+    file.write_all(content)?;
+    file.sync_all()?;
     Ok(())
 }
 

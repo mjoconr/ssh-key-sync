@@ -14,7 +14,7 @@ use fs2::FileExt as _;
 use serde::{Deserialize, Serialize};
 use ssh_key_sync_core::{
     SignedEnvelope, load_verifying_key, new_nonce, new_token, parse_public_key, token_digest,
-    unix_now, verify_envelope,
+    unix_now, verify_envelope, verify_release_manifest,
 };
 
 #[derive(Debug, Parser)]
@@ -66,6 +66,18 @@ enum Command {
         /// Show the resulting crontab without installing it.
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Verify a signed release checksum manifest.
+    ReleaseVerify {
+        /// Checksum manifest to verify.
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Detached release signature.
+        #[arg(long)]
+        signature: PathBuf,
+        /// Base64url-encoded release verification key.
+        #[arg(long)]
+        public_key: PathBuf,
     },
 }
 
@@ -144,6 +156,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Enroll { name } => enroll(&cli.config, &name).await?,
         Command::EnrollmentStatus { wait } => enrollment_status(&cli.config, wait).await?,
         Command::InstallCron { dry_run } => install_cron(&cli.config, dry_run)?,
+        Command::ReleaseVerify {
+            manifest,
+            signature,
+            public_key,
+        } => {
+            let manifest = fs::read(manifest)?;
+            let signature = fs::read_to_string(signature)?;
+            let key = ssh_key_sync_core::load_release_verifying_key(public_key)?;
+            verify_release_manifest(&manifest, &signature, &key)?;
+            println!("release signature is valid");
+        }
     }
     Ok(())
 }

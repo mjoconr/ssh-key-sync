@@ -39,6 +39,8 @@ changing configuration on clients.
 - Server configuration edits preserve ownership, validate before activation,
   keep a timestamped backup, and replace atomically.
 - Release artifacts include checksums and are built from a locked dependency set.
+- Release checksums are signed by an offline Ed25519 key whose trust anchor is
+  installed separately from the release-download origin.
 - x86-64 and ARM64 release artifacts are built natively for their target
   architecture.
 - Dependency advisories, licenses, protected CI, CodeQL, secret scanning, and
@@ -46,16 +48,19 @@ changing configuration on clients.
 - The optional reboot service runs only when the operating system has created
   `/run/reboot-required`.
 
-## Release Trust Limitation
+## Release Trust
 
-The auto-updaters verify an artifact against `SHA256SUMS`, but both currently
-come from the same GitHub release origin. A compromised release publisher could
-therefore replace both. An independent signature or GitHub artifact
-attestation must be added before treating automatic updates as fully
-supply-chain verified.
+The installer verifies `SHA256SUMS.sig` with a locally pinned release public key
+before reading checksums or executing a candidate binary. The release private
+key is separate from TLS and SSH response-signing keys and is not available to
+GitHub Actions.
 
-Until then, keep auto-update opt-in, monitor update failures, and prefer a
-known release tag for high-value servers.
+First installation still requires an explicit bootstrap decision because no
+installed binary exists to perform signature verification. The documented
+bootstrap builds a verifier from reviewed source and compares the release-key
+fingerprint through an independent channel.
+
+See [releases.md](releases.md) for the complete update and rotation model.
 
 ## Secrets
 

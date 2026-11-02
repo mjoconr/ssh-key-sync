@@ -160,6 +160,6 @@ weekly reboot timer runs only when `/run/reboot-required` exists.
 Release automation builds x86-64 and ARM64 static binaries on native GitHub
 runners and publishes checksum-listed archives and units. The `check` job is
 branch-protected; CodeQL currently runs on pull requests and the main branch.
-Auto-update downloads validate the archive or unit against `SHA256SUMS` before
-replacement.
+The release checksum manifest is signed by a separate offline key. Auto-update
+validates that signature and each archive or unit before replacement.
 

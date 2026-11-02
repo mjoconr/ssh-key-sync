@@ -46,10 +46,12 @@ enrollment flow for rotation. Remaining work:
 
 ### Dependency And Advisory Maintenance
 
-Resolve the pending major dependency updates deliberately, especially
-`ed25519-dalek` and `sha2`. Keep each major upgrade in its own pull request,
-review changed cryptographic behavior, and run the full Docker integration
-test. Merge only with zero unexplained CodeQL or Dependabot findings.
+The pending minor and major dependency updates are resolved. `ed25519-dalek`
+v3 was checked against a signature produced by the previous implementation,
+and the direct SHA-256 upgrade has a known-answer test. Continue to keep
+cryptographic major upgrades isolated, review changed behavior, and run the
+full Docker integration test. Merge only with zero unexplained CodeQL or
+Dependabot findings.
 
 Make the CodeQL result a required branch-protection check once the workflow has
 proven stable. Add dependency review and keep the required status checks aligned

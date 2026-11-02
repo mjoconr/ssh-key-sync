@@ -362,8 +362,10 @@ fn state_path(config: &Config) -> &Path {
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let log_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(log_filter)
+        .with_ansi(false)
         .init();
     match Cli::parse().command {
         Command::CheckConfig { config } => {

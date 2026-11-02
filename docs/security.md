@@ -10,15 +10,22 @@ grant unauthorized access.
 
 - Internet clients to the TLS proxy.
 - TLS proxy to the loopback server.
-- Server to its configuration and signing key.
+- Server to its configuration, signing key, and SQLite state.
 - Client to its filesystem and SSH daemon.
 - Source repository and CI to release artifacts.
+- GitHub release downloads to the installed client or server binary.
+
+The service is pull-only. The server has no channel for executing commands or
+changing configuration on clients.
 
 ## Controls
 
 - Native responses are signed with Ed25519 and bound to a request nonce.
 - Tokens are at least 256 random bits; the server stores only SHA-256 digests.
 - Bearer tokens are not sent over plaintext HTTP.
+- Enrollment requests expire after 15 minutes and are rate-limited by observed
+  source address.
+- The pending enrollment queue is capped to prevent unbounded growth.
 - Public groups require explicit configuration.
 - A private-group authentication failure never falls back to the public group.
 - CIDR matching uses observed addresses from a trusted proxy path.
@@ -27,8 +34,47 @@ grant unauthorized access.
 - Key files are written atomically with mode `0600`.
 - Existing authorization files are preserved.
 - `sshd` changes are validated and rolled back on failure.
+- Server state snapshots use SQLite's online backup API, private permissions,
+  atomic rename, and bounded retention.
+- Server configuration edits preserve ownership, validate before activation,
+  keep a timestamped backup, and replace atomically.
 - Release artifacts include checksums and are built from a locked dependency set.
-- Dependency advisories and licenses are checked in CI.
+- x86-64 and ARM64 release artifacts are built natively for their target
+  architecture.
+- Dependency advisories, licenses, protected CI, CodeQL, secret scanning, and
+  push protection are enabled.
+- The optional reboot service runs only when the operating system has created
+  `/run/reboot-required`.
+
+## Release Trust Limitation
+
+The auto-updaters verify an artifact against `SHA256SUMS`, but both currently
+come from the same GitHub release origin. A compromised release publisher could
+therefore replace both. An independent signature or GitHub artifact
+attestation must be added before treating automatic updates as fully
+supply-chain verified.
+
+Until then, keep auto-update opt-in, monitor update failures, and prefer a
+known release tag for high-value servers.
+
+## Secrets
+
+- The server signing private key must never leave the protected server config.
+- Machine tokens are generated on clients and stored with mode `0600`.
+- SQLite state contains token digests, not plaintext machine tokens.
+- Public SSH keys are not secrets, but avoid publishing a mapping between
+  personal identities and private infrastructure.
+- Private deployment configs, addresses, logs, screenshots, and keys belong in
+  ignored local storage, not this repository.
+
+## Administrative Safety
+
+- Keep an existing SSH session open while changing `sshd`.
+- Keep Proxmox or host-managed keys in their existing files.
+- Use replacement enrollment for hostname changes.
+- Review pending request source addresses, hostnames, expiry, and short code.
+- Retire the old identity only after a new key sync and SSH login succeed.
+- Verify backup age and periodically test restoration on a non-production copy.
 
 ## Reporting
 

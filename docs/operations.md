@@ -7,6 +7,7 @@
 - Public group: fetched anonymously from `/v1/keys/public`.
 - Private group: fetched with a machine token from `/v1/keys`.
 - Signing fingerprint: SHA-256 digest of the server's raw 32-byte public key.
+- Managed file: `/etc/ssh/authorized_keys.d/root`.
 
 ## Prerequisites
 
@@ -17,13 +18,63 @@ On the server:
 - `X-Real-IP` set by the trusted proxy.
 - Server configuration and signing key installed under `/etc/ssh-key-sync`.
 - `ssh-key-sync-server.service` enabled.
+- The `ssh-key-sync` service account and systemd unit installed.
+- `curl`, `sha256sum`, and outbound HTTPS for automatic updates.
 
 On a client:
 
 - Root access and an open recovery session.
 - Existing `authorized_keys` backed up.
 - Outbound HTTPS access to the server.
-- `sha256sum`, `curl`, and systemd.
+- `sha256sum` and `curl`.
+- systemd, or cron for older systems.
+- A supported 64-bit x86 or ARM64 Linux architecture.
+
+### Reverse Proxy Contract
+
+The public proxy must route `/v1/` and `/xmlrpc/` to
+`http://127.0.0.1:18080`, preserve the request method and body, and set
+`X-Real-IP` to the observed client address. Do not trust client-supplied
+source-address headers. The server ignores `X-Real-IP` unless the direct peer
+is loopback.
+
+### Initial Server Bootstrap
+
+The current release assumes an existing systemd server installation. A
+reproducible package-based bootstrap is future work; perform these steps once:
+
+1. Create the unprivileged account and protected configuration directory.
+2. Generate `signing.key` and `signing.pub` under `/etc/ssh-key-sync`.
+3. Create `server.toml` from [the example](../examples/server.toml), including
+   the real `public_url`.
+4. Make `server.toml` and `signing.key` readable by the
+   `ssh-key-sync` group but not other users.
+5. Install the release binary with `install-server.sh --no-restart`.
+6. Install [the server unit](../deploy/ssh-key-sync-server.service), run
+   `systemctl daemon-reload`, and enable the service.
+7. Install and validate the TLS proxy route before enrolling production
+   clients.
+8. Enable backup and auto-update timers only after the manual health checks
+   succeed.
+
+Use the following permission model:
+
+```text
+/etc/ssh-key-sync                          root:ssh-key-sync  0750
+/etc/ssh-key-sync/server.toml              root:ssh-key-sync  0640
+/etc/ssh-key-sync/signing.key              root:ssh-key-sync  0640
+/etc/ssh-key-sync/signing.pub              root:root          0644
+/var/lib/ssh-key-sync                     ssh-key-sync:ssh-key-sync 0755
+/var/lib/ssh-key-sync/state.db            ssh-key-sync:ssh-key-sync 0600
+```
+
+The installed server must be able to read `server.toml` and `signing.key`.
+Verify this as the service account before restarting:
+
+```sh
+runuser -u ssh-key-sync -- ssh-key-sync-server check-config \
+  --config /etc/ssh-key-sync/server.toml
+```
 
 ## Public-Group Installation
 
@@ -54,7 +105,7 @@ The command:
 5. Writes `/etc/ssh-key-sync/client.toml`.
 6. Fetches and verifies the public key set without changing files.
 7. Applies and validates the two-file `sshd` configuration.
-8. Installs and enables the systemd timer.
+8. Installs and enables the systemd timer, or prints the cron-only follow-up.
 
 Verify:
 
@@ -64,6 +115,9 @@ ssh-key-sync-client inspect-sshd
 systemctl status ssh-key-sync-client.service --no-pager
 systemctl list-timers ssh-key-sync-client.timer --no-pager
 ```
+
+On a cron-only host, verify `crontab -l` contains the managed
+`ssh-key-sync-client` synchronization entry.
 
 Open a new SSH session before closing recovery access.
 
@@ -125,6 +179,13 @@ systemctl enable --now ssh-key-sync-client.timer
 
 Verify a new SSH connection remains available.
 
+For a cron-only host, install the synchronization entry after approval:
+
+```sh
+ssh-key-sync-client --config /etc/ssh-key-sync/client.toml install-cron
+ssh-key-sync-client --config /etc/ssh-key-sync/client.toml install-cron --dry-run
+```
+
 ## Client Upgrade
 
 The existing configuration and token are preserved:
@@ -141,6 +202,10 @@ Then run:
 ssh-key-sync-client sync --dry-run
 systemctl start ssh-key-sync-client.service
 ```
+
+With auto-update enabled, the same update runs daily from
+`ssh-key-sync-client-update.timer`, or from the managed cron entry on a
+cron-only host.
 
 ## Editing Keys And Groups
 
@@ -190,6 +255,10 @@ the server configuration after an external edit.
 The key editor accepts terminal paste events. A group with active machine
 tokens cannot be removed until those tokens are retired.
 
+The Public Keys view displays the OpenSSH algorithm beside each owner and the
+full SHA-256 fingerprint in the details panel. Generated install commands
+default to manual updates; `U` toggles the optional daily auto-update flag.
+
 ## Server Upgrade
 
 1. Validate the new build in Docker:
@@ -231,6 +300,18 @@ curl -fsSL \
 
 The database, server configuration, and signing key are never replaced.
 
+For a release-specific install, replace `latest` with the reviewed tag and
+verify its recorded version:
+
+```sh
+curl -fsSL \
+  https://github.com/mjoconr/ssh-key-sync/releases/download/v0.4.9/SHA256SUMS
+ssh-key-sync-server --version
+```
+
+The updater keeps the previous binary at
+`/usr/local/bin/ssh-key-sync-server.before-upgrade`.
+
 ### Automatic Updates
 
 Client and server upgrades are pull-based, checksum-verified, and opt-in. The
@@ -252,6 +333,12 @@ curl -fsSL \
 The server updater validates the candidate configuration, restarts the
 service, and restores the previous binary if the health check fails. Updates
 do not modify the database, signing key, or either machine's client settings.
+
+Checksum verification detects partial or corrupted downloads and mismatched
+artifacts. It is not yet an independent release signature: the archive and its
+checksum currently come from the same GitHub release origin. Signed release
+provenance is tracked as release-blocking work in
+[roadmap.md](roadmap.md).
 
 Automatic operating-system updates remain the operating system's
 responsibility. On Debian or Ubuntu, configure `unattended-upgrades` for the
@@ -299,10 +386,32 @@ curl -fsSL \
 ```
 
 Before restoring a snapshot, stop the server and keep an SSH recovery session
-open. Replace only `/var/lib/ssh-key-sync/state.db` with the selected snapshot,
-preserve ownership by `ssh-key-sync`, start the service, and verify health plus
-an enrollment or token listing. Backups contain token digests and audit data,
-not plaintext machine tokens, but should still be protected as private data.
+open:
+
+```sh
+systemctl stop ssh-key-sync-server.service
+timestamp="$(date +%Y%m%dT%H%M%S)"
+mv /var/lib/ssh-key-sync/state.db \
+  "/var/lib/ssh-key-sync/state.db.before-restore-$timestamp"
+for suffix in -wal -shm; do
+  if [ -e "/var/lib/ssh-key-sync/state.db$suffix" ]; then
+    mv "/var/lib/ssh-key-sync/state.db$suffix" \
+      "/var/lib/ssh-key-sync/state.db$suffix.before-restore-$timestamp"
+  fi
+done
+install -o ssh-key-sync -g ssh-key-sync -m 0600 \
+  /var/lib/ssh-key-sync/backups/state-TIMESTAMP.db \
+  /var/lib/ssh-key-sync/state.db
+systemctl start ssh-key-sync-server.service
+ssh-key-sync-server enrollment list
+ssh-key-sync-server token list
+curl -fsS http://127.0.0.1:18080/v1/health
+```
+
+Moving `state.db-wal` and `state.db-shm` aside prevents stale transactions from
+being replayed against the restored database. Do not restore while the server
+is running. Backups contain token digests and audit data, not plaintext machine
+tokens, but should still be protected as private data.
 
 ## Token Management
 
@@ -343,6 +452,26 @@ Do not edit an active enrollment identity in place. Use replacement enrollment:
 This preserves an audit trail and keeps the old credential valid until the new
 credential has been tested.
 
+## Legacy Clients
+
+`POST /xmlrpc/` remains only for machines that cannot run the native HTTPS
+client. It selects keys from the source CIDR and cannot distinguish two
+machines behind the same NAT address. It is therefore not a replacement for
+machine tokens.
+
+For legacy cron-only systems:
+
+1. Confirm the local cron job and its output path.
+2. Keep the existing Proxmox or host-managed `authorized_keys` file.
+3. Confirm the legacy URL, TLS behavior, and source network.
+4. Record the machine in the migration inventory.
+5. Replace the job only after the native client can reach the HTTPS endpoint.
+6. Remove the legacy cron entry with a saved crontab backup.
+
+Do not place bearer tokens in legacy request bodies, URLs, or plaintext HTTP.
+Monitor `/xmlrpc/` request counts until the compatibility endpoint can be
+retired.
+
 ## Failure And Rollback
 
 If key retrieval fails, the client leaves the managed file unchanged.
@@ -357,7 +486,8 @@ configuration automatically. Manual backups:
 
 If a client must be removed:
 
-1. Disable `ssh-key-sync-client.timer`.
+1. Disable `ssh-key-sync-client.timer` and the optional update timer, or remove
+   the managed synchronization and update entries from root's crontab.
 2. Revoke its machine token.
 3. Restore the pre-install client or SSH configuration backup.
 4. Confirm a new SSH connection.
@@ -369,5 +499,25 @@ systemctl status ssh-key-sync-server.service --no-pager
 systemctl status ssh-key-sync-client.service --no-pager
 systemctl list-timers ssh-key-sync-client.timer --no-pager
 journalctl -u ssh-key-sync-client.service --since "20 minutes ago"
+curl -fsS https://keys.example.net/v1/health
+journalctl -u ssh-key-sync-server-update.service --since "2 days ago"
+journalctl -u ssh-key-sync-backup.service --since "2 days ago"
+ls -lh /var/lib/ssh-key-sync/backups
 ```
+
+## Monitoring
+
+At minimum, monitor:
+
+- HTTPS health from outside the server;
+- failed `ssh-key-sync-client.service` runs;
+- failed server update, backup, and reboot-check units;
+- pending enrollment count and requests nearing expiry;
+- active-token last-used time and unexpected source addresses;
+- TLS certificate and reverse-proxy errors;
+- SQLite backup age and count;
+- GitHub Dependabot, CodeQL, secret-scanning, and security-advisory alerts.
+
+The service does not currently publish metrics or send alerts itself. Use the
+existing systemd journal and HTTP health endpoint with an external monitor.
 

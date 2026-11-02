@@ -356,7 +356,10 @@ pub fn public_key_algorithm(line: &str) -> Result<String, Error> {
 
 /// Hash a high-entropy token for server storage.
 pub fn token_digest(plaintext: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(plaintext.as_bytes()))
+    format!(
+        "sha256:{}",
+        lowercase_hex(Sha256::digest(plaintext.as_bytes()))
+    )
 }
 
 /// Validate the canonical stored form of a SHA-256 token digest.
@@ -482,10 +485,9 @@ pub fn load_verifying_key(path: impl AsRef<Path>) -> Result<VerifyingKey, Error>
 /// Return the SHA-256 fingerprint of the public half of a signing key.
 pub fn signing_key_fingerprint(path: impl AsRef<Path>) -> Result<String, Error> {
     let key = load_signing_key_secure(path)?;
-    Ok(format!(
-        "{:x}",
-        Sha256::digest(key.verifying_key().to_bytes())
-    ))
+    Ok(lowercase_hex(Sha256::digest(
+        key.verifying_key().to_bytes(),
+    )))
 }
 
 /// Sign a release checksum manifest with the release signing key.
@@ -542,7 +544,18 @@ pub fn load_release_verifying_key(path: impl AsRef<Path>) -> Result<VerifyingKey
 
 /// Return the SHA-256 fingerprint of a release verification key.
 pub fn release_verifying_key_fingerprint(key: &VerifyingKey) -> String {
-    format!("{:x}", Sha256::digest(key.to_bytes()))
+    lowercase_hex(Sha256::digest(key.to_bytes()))
+}
+
+fn lowercase_hex(bytes: impl AsRef<[u8]>) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let bytes = bytes.as_ref();
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
 }
 
 /// Return the current Unix timestamp.
@@ -615,6 +628,14 @@ digest = "{}"
         assert!(config.validate().is_err());
         config.groups.get_mut("private").unwrap().token_ttl_days = Some(3651);
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn token_digest_matches_the_sha256_test_vector() {
+        assert_eq!(
+            token_digest("abc"),
+            "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[test]

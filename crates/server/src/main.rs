@@ -1081,6 +1081,7 @@ async fn xmlrpc(
         return xml_fault(400, "Missing or invalid client address");
     };
     let Some(group) = config.group_for_ip(source_ip) else {
+        info!(%source_ip, "legacy XML-RPC request without an enabled group");
         return xml_fault(403, "No legacy key group");
     };
     let keys = match config.keys_for_group(group) {
@@ -1090,6 +1091,12 @@ async fn xmlrpc(
             return xml_fault(500, "Server error");
         }
     };
+    info!(
+        group,
+        %source_ip,
+        key_count = keys.len(),
+        "legacy XML-RPC key request"
+    );
     let mut text = keys
         .into_iter()
         .map(|key| key.authorized_keys)

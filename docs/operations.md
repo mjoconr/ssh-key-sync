@@ -500,6 +500,24 @@ client. It selects keys from the source CIDR and cannot distinguish two
 machines behind the same NAT address. It is therefore not a replacement for
 machine tokens.
 
+Successful requests are recorded in the server journal with the selected group,
+observed source address and key count. Caddy access logs use a filter that
+removes `Authorization`, `Cookie` and inbound `X-Real-IP` headers. Review legacy
+activity with:
+
+```sh
+sudo scripts/legacy-activity.sh '30 days ago'
+sudo jq -r '
+  select(.request.uri | startswith("/xmlrpc"))
+  | [.ts, .request.client_ip, .request.method, .request.uri, .status]
+  | @tsv
+' /var/log/caddy/access.log
+```
+
+Choose an observation window before disabling `/xmlrpc/`. A zero successful
+request count is necessary but not sufficient: confirm the inventory and allow
+for monthly or rarely run cron clients.
+
 For legacy cron-only systems:
 
 1. Confirm the local cron job and its output path.

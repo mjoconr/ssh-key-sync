@@ -74,8 +74,10 @@ private group.
 
 ### Monitoring And Notifications
 
-The service currently exposes health and writes systemd journal entries but
-does not publish metrics or notify an administrator. Add:
+Legacy XML-RPC requests are now identifiable by group and source in the server
+journal, with credential-filtered Caddy access logs and an operator summary
+command. The service otherwise writes systemd journal entries but does not
+publish metrics or notify an administrator. Add:
 
 - a privacy-preserving metrics endpoint for pending requests, active/revoked
   tokens, last successful sync, backup age, and update results;

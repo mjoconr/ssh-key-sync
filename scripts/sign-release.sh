@@ -4,7 +4,8 @@ set -euo pipefail
 
 repo="${SSH_KEY_SYNC_REPO:-$(gh repo view --json nameWithOwner --jq '.nameWithOwner')}"
 tag="${1:-}"
-signing_key="${SSH_KEY_SYNC_RELEASE_KEY:-.local/release-v1/release.key}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+signing_key="${SSH_KEY_SYNC_RELEASE_KEY:-$config_home/ssh-key-sync/release-v1.key}"
 public_key="${SSH_KEY_SYNC_RELEASE_PUBLIC_KEY:-release-keys/release-v1.pub}"
 
 if [[ -z "$tag" ]]; then

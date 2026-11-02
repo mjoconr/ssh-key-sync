@@ -7,7 +7,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.4.11"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -27,7 +27,7 @@ todo = "warn"
 unwrap_used = "warn"
 
 [workspace.dependencies]
-ssh-key-sync-core = { version = "0.4.11", path = "crates/core" }
+ssh-key-sync-core = { version = "0.5.0", path = "crates/core" }
 base64 = "0.22"
 ed25519-dalek = { version = "2.2", features = ["rand_core"] }
 ipnet = { version = "2.12", features = ["serde"] }
@@ -38,6 +38,7 @@ sha2 = "0.10"
 ssh-key = "0.6.7"
 thiserror = "2.0"
 toml = "0.9"
+url = "2.5"
 axum = "0.8"
 clap = { version = "4.6", features = ["derive"] }
 roxmltree = "0.20"
@@ -52,4 +53,6 @@ if-addrs = "0.15"
 ratatui = "0.30"
 crossterm = "0.29"
 arc-swap = "1.7"
+tower = { version = "0.5", features = ["limit"] }
+tower-http = { version = "0.6", features = ["timeout"] }
 

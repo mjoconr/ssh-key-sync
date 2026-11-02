@@ -29,6 +29,9 @@ changing configuration on clients.
 - Public groups require explicit configuration.
 - A private-group authentication failure never falls back to the public group.
 - CIDR matching uses observed addresses from a trusted proxy path.
+- XML-RPC source-CIDR selection is disabled per group unless explicitly
+  enabled.
+- Loopback proxy requests require one valid source-address header.
 - The client rejects invalid signatures, expired responses, malformed keys,
   fingerprint mismatches, empty sets, and symlink destinations.
 - Key files are written atomically with mode `0600`.
@@ -38,6 +41,15 @@ changing configuration on clients.
   atomic rename, and bounded retention.
 - Server configuration edits preserve ownership, validate before activation,
   keep a timestamped backup, and replace atomically.
+- Cleartext binding is loopback-only unless an explicit unsafe override is set.
+- Signing-key files must be regular, non-symlink files inaccessible to other
+  users.
+- Enrollment state is bounded, expired unapproved rows are pruned, and the
+  SQLite files are forced to mode `0600`.
+- Request bodies, response concurrency, request duration, nonces, enrollment
+  labels, hostnames, and interface addresses are bounded.
+- Unauthenticated metadata is stripped of terminal control characters before
+  storage or display.
 - Release artifacts include checksums and are built from a locked dependency set.
 - Release checksums are signed by an offline Ed25519 key whose trust anchor is
   installed separately from the release-download origin.

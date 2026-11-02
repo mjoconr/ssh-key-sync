@@ -36,6 +36,7 @@ impl Editor {
                 } else {
                     Visibility::Private
                 },
+                legacy_xmlrpc: false,
                 cidrs: vec![],
             },
         );
@@ -82,6 +83,19 @@ impl Editor {
         let cidr = cidr.parse::<IpNet>()?;
         let group = self.config.groups.get_mut(group).ok_or("unknown group")?;
         group.cidrs.retain(|item| item != &cidr);
+        self.save()
+    }
+
+    pub(crate) fn set_legacy_xmlrpc(
+        &mut self,
+        group: &str,
+        enabled: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.config
+            .groups
+            .get_mut(group)
+            .ok_or("unknown group")?
+            .legacy_xmlrpc = enabled;
         self.save()
     }
 

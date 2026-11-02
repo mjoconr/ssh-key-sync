@@ -19,10 +19,12 @@ configuration.
 - Online SQLite state backups with retention.
 - Enrollment approval, token lifecycle, audit history, and a terminal admin UI.
 - Native x86-64 and ARM64 release builds for client and server.
+- Loopback-only cleartext binding, bounded requests, strict enrollment fields,
+  and explicit opt-in for unauthenticated XML-RPC groups.
 
 ## Status
 
-Version `0.4.11` is the current release. It provides signed key responses,
+Version `0.5.0` is the current release. It provides signed key responses,
 enrollment and machine-token workflows, validated key/group/CIDR edits, a
 terminal administration interface, systemd and cron deployment, checksum-verified
 and cryptographically signed optional auto-updates, SQLite backups, and

@@ -9,6 +9,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::IpAddr,
+    os::unix::fs::PermissionsExt as _,
     path::Path,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -21,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use ssh_key::PublicKey;
 use thiserror::Error;
+use url::Url;
 
 /// Current configuration schema version.
 pub const CONFIG_SCHEMA_VERSION: u32 = 1;
@@ -79,6 +81,9 @@ pub enum Visibility {
 pub struct GroupConfig {
     /// Whether anonymous clients may fetch this group.
     pub visibility: Visibility,
+    /// Whether the unauthenticated XML-RPC compatibility route may serve it.
+    #[serde(default)]
+    pub legacy_xmlrpc: bool,
     /// Legacy source networks mapped to this group.
     #[serde(default)]
     pub cidrs: Vec<IpNet>,
@@ -119,6 +124,12 @@ pub struct Config {
     /// Externally reachable HTTPS URL used by client bootstrap commands.
     #[serde(default)]
     pub public_url: Option<String>,
+    /// Permit binding the cleartext HTTP server beyond loopback.
+    #[serde(default)]
+    pub allow_non_loopback_http: bool,
+    /// Require a trusted `X-Real-IP` header for requests arriving over loopback.
+    #[serde(default = "default_true")]
+    pub require_forwarded_client_ip: bool,
     /// Optional SQLite enrollment and token state path.
     #[serde(default)]
     pub state_file: Option<String>,
@@ -151,6 +162,28 @@ impl Config {
     pub fn validate(&self) -> Result<(), Error> {
         if self.schema_version != CONFIG_SCHEMA_VERSION {
             return Err(Error::InvalidConfig("unsupported schema_version".into()));
+        }
+        let listen = self
+            .listen
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| Error::InvalidConfig("listen must be an IP socket address".into()))?;
+        if !listen.ip().is_loopback() && !self.allow_non_loopback_http {
+            return Err(Error::InvalidConfig(
+                "cleartext listen address must be loopback".into(),
+            ));
+        }
+        if let Some(public_url) = &self.public_url {
+            let url = Url::parse(public_url)
+                .map_err(|_| Error::InvalidConfig("public_url must be a valid URL".into()))?;
+            if url.scheme() != "https"
+                || url.host().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+            {
+                return Err(Error::InvalidConfig(
+                    "public_url must be HTTPS without credentials".into(),
+                ));
+            }
         }
         if self.groups.is_empty() {
             return Err(Error::InvalidConfig("no groups defined".into()));
@@ -218,18 +251,23 @@ impl Config {
     }
 
     /// Select a legacy group using the most-specific matching CIDR.
-    pub fn group_for_ip(&self, ip: IpAddr) -> &str {
+    pub fn group_for_ip(&self, ip: IpAddr) -> Option<&str> {
         self.groups
             .iter()
             .flat_map(|(name, group)| {
-                group
-                    .cidrs
-                    .iter()
-                    .filter(move |network| network.contains(&ip))
-                    .map(move |network| (network.prefix_len(), name.as_str()))
+                group.cidrs.iter().filter_map(move |network| {
+                    (group.legacy_xmlrpc && network.contains(&ip))
+                        .then_some((network.prefix_len(), name.as_str()))
+                })
             })
             .max_by_key(|(prefix, _)| *prefix)
-            .map_or(self.default_group.as_str(), |(_, name)| name)
+            .map(|(_, name)| name)
+            .or_else(|| {
+                self.groups
+                    .get(&self.default_group)
+                    .is_some_and(|group| group.legacy_xmlrpc)
+                    .then_some(self.default_group.as_str())
+            })
     }
 
     /// Authenticate a group token and return its group.
@@ -240,6 +278,10 @@ impl Config {
             .find(|token| constant_time_eq(token.digest.as_bytes(), digest.as_bytes()))
             .map(|token| token.group.as_str())
     }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// One validated key and its fingerprint.
@@ -306,7 +348,8 @@ pub fn token_digest(plaintext: &str) -> String {
     format!("sha256:{:x}", Sha256::digest(plaintext.as_bytes()))
 }
 
-fn validate_token_digest(digest: &str) -> Result<(), Error> {
+/// Validate the canonical stored form of a SHA-256 token digest.
+pub fn validate_token_digest(digest: &str) -> Result<(), Error> {
     let Some(hex) = digest.strip_prefix("sha256:") else {
         return Err(Error::InvalidConfig("token digest must use sha256".into()));
     };
@@ -399,6 +442,23 @@ pub fn load_signing_key(path: impl AsRef<Path>) -> Result<SigningKey, Error> {
     Ok(SigningKey::from_bytes(&bytes))
 }
 
+/// Load a signing key after rejecting symlinks and world-readable files.
+pub fn load_signing_key_secure(path: impl AsRef<Path>) -> Result<SigningKey, Error> {
+    let path = path.as_ref();
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() {
+        return Err(Error::InvalidConfig(
+            "signing key must be a regular file".into(),
+        ));
+    }
+    if metadata.permissions().mode() & 0o007 != 0 {
+        return Err(Error::InvalidConfig(
+            "signing key must not be world-accessible".into(),
+        ));
+    }
+    load_signing_key(path)
+}
+
 /// Load a raw 32-byte Ed25519 verification key.
 pub fn load_verifying_key(path: impl AsRef<Path>) -> Result<VerifyingKey, Error> {
     let bytes: [u8; 32] = std::fs::read(path)?
@@ -410,7 +470,7 @@ pub fn load_verifying_key(path: impl AsRef<Path>) -> Result<VerifyingKey, Error>
 
 /// Return the SHA-256 fingerprint of the public half of a signing key.
 pub fn signing_key_fingerprint(path: impl AsRef<Path>) -> Result<String, Error> {
-    let key = load_signing_key(path)?;
+    let key = load_signing_key_secure(path)?;
     Ok(format!(
         "{:x}",
         Sha256::digest(key.verifying_key().to_bytes())
@@ -498,8 +558,10 @@ signing_key_file = "/tmp/signing.key"
 default_group = "public"
 [groups.public]
 visibility = "public"
+legacy_xmlrpc = true
 [groups.private]
 visibility = "private"
+legacy_xmlrpc = true
 cidrs = ["192.0.2.0/24", "192.0.2.1/32"]
 [keys.test]
 groups = ["public", "private"]
@@ -516,8 +578,18 @@ digest = "{}"
 
     #[test]
     fn selects_tokens_and_specific_cidrs() {
-        let config = config();
-        assert_eq!(config.group_for_ip("192.0.2.1".parse().unwrap()), "private");
+        let mut config = config();
+        assert_eq!(
+            config.group_for_ip("192.0.2.1".parse().unwrap()),
+            Some("private")
+        );
+        config.groups.get_mut("private").unwrap().legacy_xmlrpc = false;
+        assert_eq!(
+            config.group_for_ip("192.0.2.1".parse().unwrap()),
+            Some("public")
+        );
+        config.groups.get_mut("public").unwrap().legacy_xmlrpc = false;
+        assert_eq!(config.group_for_ip("192.0.2.1".parse().unwrap()), None);
         assert_eq!(config.group_for_token("secret"), Some("private"));
         assert_eq!(config.group_for_token("wrong"), None);
     }
@@ -566,5 +638,29 @@ digest = "{}"
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn rejects_unsafe_listen_and_public_urls() {
+        let mut config = config();
+        config.listen = "0.0.0.0:18080".into();
+        assert!(config.validate().is_err());
+        config.allow_non_loopback_http = true;
+        assert!(config.validate().is_ok());
+        config.public_url = Some("http://keys.example.net".into());
+        assert!(config.validate().is_err());
+        config.public_url = Some("https://user@keys.example.net".into());
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_world_readable_signing_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("signing.key");
+        std::fs::write(&path, [7_u8; 32]).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(load_signing_key_secure(&path).is_err());
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(load_signing_key_secure(&path).is_ok());
     }
 }

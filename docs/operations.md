@@ -232,6 +232,15 @@ ssh-key-sync-server group remove staging
 `group remove` and `key remove` reject unsafe changes through normal
 configuration validation. A timestamped backup is created before each edit.
 
+The unsigned compatibility route is opt-in per group:
+
+```sh
+ssh-key-sync-server group set-legacy GROUP_NAME true
+ssh-key-sync-server group set-legacy GROUP_NAME false
+```
+
+Enable it only for groups still required by legacy XML-RPC clients.
+
 ## Terminal UI
 
 Open the local administration interface with:
@@ -252,6 +261,7 @@ the server configuration after an external edit.
 | `R` | Revoke a selected token |
 | `C` | Manage CIDRs for a selected group |
 | `G` | Toggle a selected key owner's group assignments |
+| `L` | Enable or disable legacy XML-RPC for a selected group |
 | `P` | Start the guided hostname-replacement flow |
 | `V` | Show the selected enrollment or token audit trail |
 | `X` | Remove, retire, or hide the selected item after confirmation |
@@ -312,7 +322,7 @@ verify its recorded version:
 
 ```sh
 curl -fsSL \
-  https://github.com/mjoconr/ssh-key-sync/releases/download/v0.4.11/SHA256SUMS
+  https://github.com/mjoconr/ssh-key-sync/releases/download/v0.5.0/SHA256SUMS
 ssh-key-sync-server --version
 ```
 
@@ -477,6 +487,15 @@ For legacy cron-only systems:
 Do not place bearer tokens in legacy request bodies, URLs, or plaintext HTTP.
 Monitor `/xmlrpc/` request counts until the compatibility endpoint can be
 retired.
+
+Before migrating the proxy to the Rust compatibility endpoint:
+
+1. Set `legacy_xmlrpc = true` only on groups used by current legacy clients.
+2. Test direct Rust responses with the proxy's expected `X-Real-IP` value.
+3. Confirm a missing or malformed header fails closed.
+4. Compare the returned key set and XML formatting with the current endpoint.
+5. Keep the PHP configuration available for rollback until a complete
+   synchronization cycle has passed.
 
 ## Failure And Rollback
 

@@ -16,6 +16,7 @@ use ssh_key_sync_core::{
     SignedEnvelope, load_verifying_key, new_nonce, new_token, parse_public_key, token_digest,
     unix_now, verify_envelope, verify_release_manifest,
 };
+use url::{Host, Url};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -131,14 +132,25 @@ impl ClientConfig {
         if config.schema_version != 1 {
             return Err("unsupported client schema_version".into());
         }
-        if !config.server_url.starts_with("https://")
-            && !config.server_url.starts_with("http://127.0.0.1")
-        {
-            return Err(
-                "server_url must use HTTPS (local development may use loopback HTTP)".into(),
-            );
-        }
+        validate_server_url(&config.server_url)?;
         Ok(config)
+    }
+}
+
+fn validate_server_url(value: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let url = Url::parse(value)?;
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return Err("server_url must not contain credentials, a query, or a fragment".into());
+    }
+    match (url.scheme(), url.host()) {
+        ("https", Some(_)) => Ok(()),
+        ("http", Some(Host::Ipv4(address))) if address.is_loopback() => Ok(()),
+        ("http", Some(Host::Ipv6(address))) if address.is_loopback() => Ok(()),
+        _ => Err("server_url must use HTTPS except for exact loopback HTTP".into()),
     }
 }
 
@@ -685,5 +697,16 @@ mod tests {
             fs::metadata(path).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    #[test]
+    fn server_url_allows_only_exact_loopback_http() {
+        assert!(validate_server_url("https://keys.example.net").is_ok());
+        assert!(validate_server_url("http://127.0.0.1:18080").is_ok());
+        assert!(validate_server_url("http://[::1]:18080").is_ok());
+        assert!(validate_server_url("http://127.0.0.1.example").is_err());
+        assert!(validate_server_url("http://127.0.0.1@example.com").is_err());
+        assert!(validate_server_url("https://user@keys.example.net").is_err());
+        assert!(validate_server_url("https://keys.example.net?token=secret").is_err());
     }
 }

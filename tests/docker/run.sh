@@ -49,12 +49,15 @@ schema_version = 1
 listen = "127.0.0.1:18080"
 signing_key_file = "$test_root/keys/signing.key"
 default_group = "public"
+require_forwarded_client_ip = false
 
 [groups.public]
 visibility = "public"
+legacy_xmlrpc = true
 
 [groups.restricted]
 visibility = "private"
+legacy_xmlrpc = true
 
 [keys.example]
 groups = ["public", "restricted"]
@@ -102,6 +105,15 @@ for _ in $(seq 1 30); do
     sleep 0.2
 done
 curl --fail --silent http://127.0.0.1:18080/v1/health | grep -qx 'ok'
+curl --silent --dump-header - --output /dev/null \
+    http://127.0.0.1:18080/v1/health | grep -qi '^cache-control: no-store'
+
+head -c 20000 /dev/zero | tr '\0' ' ' > oversized-enrollment.json
+status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+    --header 'Content-Type: application/json' \
+    --data-binary @oversized-enrollment.json \
+    http://127.0.0.1:18080/v1/enrollments)"
+test "$status" = "413"
 
 ssh-key-sync-client --config public-client.toml sync --dry-run
 test ! -e public_authorized_keys

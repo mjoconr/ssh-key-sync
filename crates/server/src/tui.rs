@@ -22,7 +22,7 @@ use ratatui::{
 use ssh_key_sync_core::{Config, parse_public_key, public_key_algorithm, signing_key_fingerprint};
 
 use crate::{
-    config_edit, open_state,
+    config_edit, open_state, sanitize_metadata,
     state::{Enrollment, State, TokenRecord},
 };
 
@@ -597,6 +597,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                 KeyCode::Char('x' | 'X') => app.remove_selected()?,
                 KeyCode::Char('c' | 'C') => app.open_cidrs(),
                 KeyCode::Char('g' | 'G') => app.assign_selected(),
+                KeyCode::Char('l' | 'L') => app.toggle_legacy_xmlrpc(),
                 KeyCode::Char('p' | 'P') => app.start_replacement(),
                 KeyCode::Char('v' | 'V') => app.open_audit()?,
                 _ => {}
@@ -907,6 +908,27 @@ impl App {
         if matches!(self.tab, Tab::Groups) {
             if let Some(group) = self.selected_group().map(str::to_owned) {
                 self.overlay = Overlay::CidrManager { group, index: 0 };
+            }
+        }
+    }
+
+    fn toggle_legacy_xmlrpc(&mut self) {
+        if matches!(self.tab, Tab::Groups) {
+            if let Some(group) = self.selected_group().map(str::to_owned) {
+                let enabled = self
+                    .config
+                    .groups
+                    .get(&group)
+                    .is_some_and(|entry| !entry.legacy_xmlrpc);
+                match self.config_edit(|editor| editor.set_legacy_xmlrpc(&group, enabled)) {
+                    Ok(()) => {
+                        self.message = format!(
+                            "{} legacy XML-RPC for {group}",
+                            if enabled { "enabled" } else { "disabled" }
+                        );
+                    }
+                    Err(error) => self.message = error.to_string(),
+                }
             }
         }
     }
@@ -1303,7 +1325,10 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .map(|item| {
             ListItem::new(format!(
                 "{} {:<8} {:<20} source={}",
-                item.code, item.status, item.name, item.source_ip
+                sanitize_metadata(&item.code, 16),
+                sanitize_metadata(&item.status, 16),
+                sanitize_metadata(&item.name, 128),
+                sanitize_metadata(&item.source_ip, 64)
             ))
         })
         .collect::<Vec<_>>();
@@ -1331,13 +1356,25 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         || vec![Line::from("No request selected")],
         |item| {
             vec![
-                Line::from(format!("ID: {}", item.id)),
-                Line::from(format!("Name: {}", item.name)),
-                Line::from(format!("Hostname: {}", item.hostname)),
-                Line::from(format!("Source: {}", item.source_ip)),
-                Line::from(format!("Interfaces: {}", item.local_addresses)),
-                Line::from(format!("Status: {}", item.status)),
-                Line::from(format!("Group: {}", item.group.as_deref().unwrap_or("-"))),
+                Line::from(format!("ID: {}", sanitize_metadata(&item.id, 128))),
+                Line::from(format!("Name: {}", sanitize_metadata(&item.name, 128))),
+                Line::from(format!(
+                    "Hostname: {}",
+                    sanitize_metadata(&item.hostname, 255)
+                )),
+                Line::from(format!(
+                    "Source: {}",
+                    sanitize_metadata(&item.source_ip, 64)
+                )),
+                Line::from(format!(
+                    "Interfaces: {}",
+                    sanitize_metadata(&item.local_addresses, 4096)
+                )),
+                Line::from(format!("Status: {}", sanitize_metadata(&item.status, 16))),
+                Line::from(format!(
+                    "Group: {}",
+                    sanitize_metadata(item.group.as_deref().unwrap_or("-"), 128)
+                )),
                 Line::from(format!("Expires: {}", item.expires_at)),
             ]
         },
@@ -1355,8 +1392,8 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .map(|item| {
             ListItem::new(format!(
                 "{:<24} {:<14} {:<8}",
-                item.label,
-                item.group,
+                sanitize_metadata(&item.label, 255),
+                sanitize_metadata(&item.group, 128),
                 if item.revoked_at.is_some() {
                     "revoked"
                 } else {
@@ -1385,9 +1422,9 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         || vec![Line::from("No token selected")],
         |item| {
             vec![
-                Line::from(format!("ID: {}", item.id)),
-                Line::from(format!("Label: {}", item.label)),
-                Line::from(format!("Group: {}", item.group)),
+                Line::from(format!("ID: {}", sanitize_metadata(&item.id, 128))),
+                Line::from(format!("Label: {}", sanitize_metadata(&item.label, 255))),
+                Line::from(format!("Group: {}", sanitize_metadata(&item.group, 128))),
                 Line::from(format!("Created: {}", item.created_at)),
                 Line::from(format!(
                     "Revoked: {}",
@@ -1401,11 +1438,11 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 )),
                 Line::from(format!(
                     "Last source: {}",
-                    item.last_source_ip.as_deref().unwrap_or("-")
+                    sanitize_metadata(item.last_source_ip.as_deref().unwrap_or("-"), 64)
                 )),
                 Line::from(format!(
                     "Client: {}",
-                    item.last_client_version.as_deref().unwrap_or("-")
+                    sanitize_metadata(item.last_client_version.as_deref().unwrap_or("-"), 128)
                 )),
             ]
         },
@@ -1424,11 +1461,12 @@ fn draw_groups(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .map(|(name, group)| {
             let keys = app.config.keys_for_group(name).map_or(0, |keys| keys.len());
             ListItem::new(format!(
-                "{:<20} {:<7} keys={} cidrs={}",
+                "{:<20} {:<7} keys={} cidrs={} legacy={}",
                 name,
                 visibility(group.visibility == ssh_key_sync_core::Visibility::Public),
                 keys,
-                group.cidrs.len()
+                group.cidrs.len(),
+                if group.legacy_xmlrpc { "yes" } else { "no" }
             ))
         })
         .collect::<Vec<_>>();
@@ -1439,7 +1477,7 @@ fn draw_groups(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         List::new(rows)
             .block(
                 Block::default()
-                    .title(" Groups | [A]dd [C]IDRs [X]remove ")
+                    .title(" Groups | [A]dd [C]IDRs [L]egacy [X]remove ")
                     .borders(Borders::ALL),
             )
             .highlight_style(Style::default().bg(Color::DarkGray))
@@ -1462,6 +1500,10 @@ fn draw_groups(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                     Line::from(format!(
                         "Keys: {}",
                         app.config.keys_for_group(name).map_or(0, |keys| keys.len())
+                    )),
+                    Line::from(format!(
+                        "Legacy XML-RPC: {}",
+                        if group.legacy_xmlrpc { "yes" } else { "no" }
                     )),
                     Line::from("CIDRs:"),
                 ];
@@ -1491,8 +1533,8 @@ fn draw_keys(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         .map(|item| {
             ListItem::new(format!(
                 "{:<12} {:<24} {}",
-                item.owner,
-                item.algorithm,
+                sanitize_metadata(&item.owner, 128),
+                sanitize_metadata(&item.algorithm, 64),
                 item.fingerprint.trim_start_matches("SHA256:")
             ))
         })
@@ -1517,10 +1559,16 @@ fn draw_keys(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         || vec![Line::from("No key selected")],
         |item| {
             vec![
-                Line::from(format!("Owner: {}", item.owner)),
-                Line::from(format!("Type: {}", item.algorithm)),
-                Line::from(format!("Fingerprint: {}", item.fingerprint)),
-                Line::from(format!("Groups: {}", item.groups.join(", "))),
+                Line::from(format!("Owner: {}", sanitize_metadata(&item.owner, 128))),
+                Line::from(format!("Type: {}", sanitize_metadata(&item.algorithm, 64))),
+                Line::from(format!(
+                    "Fingerprint: {}",
+                    sanitize_metadata(&item.fingerprint, 128)
+                )),
+                Line::from(format!(
+                    "Groups: {}",
+                    sanitize_metadata(&item.groups.join(", "), 1024)
+                )),
             ]
         },
     );

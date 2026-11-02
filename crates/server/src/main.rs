@@ -12,8 +12,12 @@ use std::{
 use arc_swap::ArcSwap;
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, Path as AxumPath, State as AxumState},
-    http::{HeaderMap, StatusCode, header::CONTENT_TYPE},
+    extract::{ConnectInfo, DefaultBodyLimit, Path as AxumPath, Request, State as AxumState},
+    http::{
+        HeaderMap, HeaderValue, StatusCode,
+        header::{CACHE_CONTROL, CONTENT_TYPE},
+    },
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -24,9 +28,12 @@ use serde::Deserialize;
 use serde::Serialize;
 use ssh_key_sync_core::{
     Config, KeySetPayload, PROTOCOL_SCHEMA_VERSION, SignedEnvelope, encode_release_verifying_key,
-    load_release_verifying_key, load_signing_key, release_verifying_key_fingerprint, sign_payload,
-    sign_release_manifest, token_digest, unix_now, verify_release_manifest,
+    load_release_verifying_key, load_signing_key, load_signing_key_secure,
+    release_verifying_key_fingerprint, sign_payload, sign_release_manifest, token_digest, unix_now,
+    validate_token_digest, verify_release_manifest,
 };
+use tower::limit::ConcurrencyLimitLayer;
+use tower_http::timeout::TimeoutLayer;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
@@ -228,6 +235,13 @@ enum GroupCommand {
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
     },
+    /// Explicitly enable or disable unauthenticated legacy XML-RPC for a group.
+    SetLegacy {
+        group: String,
+        enabled: bool,
+        #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
+        config: PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -387,16 +401,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             EnrollmentCommand::List { config } => {
                 let config = Config::load(config)?;
                 for enrollment in open_state(&config)?.list_enrollments()? {
+                    let id = sanitize_metadata(&enrollment.id, 128);
+                    let code = sanitize_metadata(&enrollment.code, 16);
+                    let status = sanitize_metadata(&enrollment.status, 16);
+                    let name = sanitize_metadata(&enrollment.name, 128);
+                    let hostname = sanitize_metadata(&enrollment.hostname, 255);
+                    let source_ip = sanitize_metadata(&enrollment.source_ip, 64);
+                    let addresses = sanitize_metadata(&enrollment.local_addresses, 4096);
+                    let group =
+                        sanitize_metadata(enrollment.group.as_deref().unwrap_or_default(), 128);
                     println!(
                         "{} {} {} {} host={} source={} addresses={} group={} expires={}",
-                        enrollment.id,
-                        enrollment.code,
-                        enrollment.status,
-                        enrollment.name,
-                        enrollment.hostname,
-                        enrollment.source_ip,
-                        enrollment.local_addresses,
-                        enrollment.group.unwrap_or_default(),
+                        id,
+                        code,
+                        status,
+                        name,
+                        hostname,
+                        source_ip,
+                        addresses,
+                        group,
                         enrollment.expires_at
                     );
                 }
@@ -406,16 +429,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let enrollment = open_state(&config)?
                     .enrollment_by_id(&request_id)?
                     .ok_or("request not found")?;
+                let id = sanitize_metadata(&enrollment.id, 128);
+                let code = sanitize_metadata(&enrollment.code, 16);
+                let status = sanitize_metadata(&enrollment.status, 16);
+                let name = sanitize_metadata(&enrollment.name, 128);
+                let hostname = sanitize_metadata(&enrollment.hostname, 255);
+                let source_ip = sanitize_metadata(&enrollment.source_ip, 64);
+                let addresses = sanitize_metadata(&enrollment.local_addresses, 4096);
+                let group = sanitize_metadata(enrollment.group.as_deref().unwrap_or_default(), 128);
                 println!(
                     "{} {} {} {} host={} source={} addresses={} group={} expires={}",
-                    enrollment.id,
-                    enrollment.code,
-                    enrollment.status,
-                    enrollment.name,
-                    enrollment.hostname,
-                    enrollment.source_ip,
-                    enrollment.local_addresses,
-                    enrollment.group.unwrap_or_default(),
+                    id,
+                    code,
+                    status,
+                    name,
+                    hostname,
+                    source_ip,
+                    addresses,
+                    group,
                     enrollment.expires_at
                 );
             }
@@ -463,11 +494,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TokenCommand::List { config } => {
                 let config = Config::load(config)?;
                 for token in open_state(&config)?.list_tokens()? {
+                    let id = sanitize_metadata(&token.id, 128);
+                    let group = sanitize_metadata(&token.group, 128);
+                    let label = sanitize_metadata(&token.label, 255);
+                    let source =
+                        sanitize_metadata(token.last_source_ip.as_deref().unwrap_or("-"), 64);
+                    let client =
+                        sanitize_metadata(token.last_client_version.as_deref().unwrap_or("-"), 128);
                     println!(
                         "{} {} {} {} last_used={} source={} client={}",
-                        token.id,
-                        token.group,
-                        token.label,
+                        id,
+                        group,
+                        label,
                         if token.revoked_at.is_some() {
                             "revoked"
                         } else {
@@ -476,8 +514,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         token
                             .last_used_at
                             .map_or_else(|| "-".into(), |value| value.to_string()),
-                        token.last_source_ip.as_deref().unwrap_or("-"),
-                        token.last_client_version.as_deref().unwrap_or("-"),
+                        source,
+                        client,
                     );
                 }
             }
@@ -499,7 +537,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
         Command::Group { command } => {
-            use GroupCommand::{Add, AddCidr, Remove, RemoveCidr};
+            use GroupCommand::{Add, AddCidr, Remove, RemoveCidr, SetLegacy};
             match command {
                 Add {
                     name,
@@ -524,6 +562,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     config,
                 } => {
                     config_edit::Editor::open(config)?.remove_cidr(&group, &cidr)?;
+                }
+                SetLegacy {
+                    group,
+                    enabled,
+                    config,
+                } => {
+                    config_edit::Editor::open(config)?.set_legacy_xmlrpc(&group, enabled)?;
                 }
             }
             println!("configuration updated");
@@ -638,7 +683,7 @@ fn write_new_file(
 
 async fn run(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::load(&path)?;
-    let signing_key = load_signing_key(&config.signing_key_file)?;
+    let signing_key = load_signing_key_secure(&config.signing_key_file)?;
     let state = open_state(&config)?;
     let address: SocketAddr = config.listen.parse()?;
     let config = Arc::new(ArcSwap::from_pointee(config));
@@ -662,21 +707,59 @@ async fn run(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         .route("/v1/keys/public", get(public_keys))
         .route("/v1/keys", get(private_keys))
         .route("/v1/signing-key", get(signing_key_handler))
-        .route("/v1/enrollments", post(create_enrollment))
+        .route(
+            "/v1/enrollments",
+            post(create_enrollment).layer(DefaultBodyLimit::max(16 * 1024)),
+        )
         .route("/v1/enrollments/{id}", get(enrollment_status))
-        .route("/xmlrpc/", post(xmlrpc))
-        .with_state(state);
+        .route(
+            "/xmlrpc/",
+            post(xmlrpc).layer(DefaultBodyLimit::max(64 * 1024)),
+        )
+        .with_state(state)
+        .layer(ConcurrencyLimitLayer::new(64))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            std::time::Duration::from_secs(15),
+        ))
+        .layer(middleware::from_fn(no_store));
     let listener = tokio::net::TcpListener::bind(address).await?;
     info!(%address, "server listening");
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(async {
-        let _ = tokio::signal::ctrl_c().await;
-    })
+    .with_graceful_shutdown(shutdown_signal())
     .await?;
     Ok(())
+}
+
+async fn no_store(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        if let Ok(mut terminate) =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = terminate.recv() => {}
+            }
+        } else {
+            let _ = tokio::signal::ctrl_c().await;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }
 
 async fn health() -> &'static str {
@@ -693,11 +776,16 @@ async fn create_enrollment(
     headers: HeaderMap,
     Json(request): Json<EnrollmentRequest>,
 ) -> Result<(StatusCode, Json<EnrollmentResponse>), ApiError> {
-    if request.name.trim().is_empty()
-        || request.name.len() > 128
+    let config = state.config.load();
+    if !valid_label(&request.name, 128)
+        || !valid_label(&request.hostname, 255)
         || request.local_addresses.len() > 32
-        || !request.secret_digest.starts_with("sha256:")
-        || !request.token_digest.starts_with("sha256:")
+        || !request
+            .local_addresses
+            .iter()
+            .all(|address| valid_local_address(address))
+        || validate_token_digest(&request.secret_digest).is_err()
+        || validate_token_digest(&request.token_digest).is_err()
     {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -710,7 +798,7 @@ async fn create_enrollment(
             request.name.trim(),
             &request.hostname,
             &request.local_addresses,
-            &client_ip(&headers, peer.ip()).to_string(),
+            &client_ip(&headers, peer.ip(), config.require_forwarded_client_ip)?.to_string(),
             &request.secret_digest,
             &request.token_digest,
         )
@@ -752,11 +840,25 @@ async fn enrollment_status(
 }
 
 fn nonce(headers: &HeaderMap) -> Result<String, ApiError> {
-    headers
-        .get("x-request-nonce")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned)
-        .ok_or(ApiError(StatusCode::BAD_REQUEST, "missing request nonce"))
+    let values = headers
+        .get_all("x-request-nonce")
+        .iter()
+        .collect::<Vec<_>>();
+    if values.len() != 1 {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid request nonce"));
+    }
+    let value = values[0]
+        .to_str()
+        .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid request nonce"))?;
+    if value.is_empty()
+        || value.len() > 256
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid request nonce"));
+    }
+    Ok(value.to_owned())
 }
 
 fn signed(
@@ -797,12 +899,13 @@ async fn private_keys(
     headers: HeaderMap,
 ) -> Result<Json<SignedEnvelope>, ApiError> {
     let nonce = nonce(&headers)?;
+    let config = state.config.load();
+    let source_ip = client_ip(&headers, peer.ip(), config.require_forwarded_client_ip)?;
     let token = headers
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .ok_or(ApiError(StatusCode::UNAUTHORIZED, "missing bearer token"))?;
-    let config = state.config.load();
     let group = config
         .group_for_token(token)
         .map(str::to_owned)
@@ -811,11 +914,14 @@ async fn private_keys(
                 .state
                 .group_for_token(
                     token,
-                    &client_ip(&headers, peer.ip()).to_string(),
-                    headers
-                        .get(axum::http::header::USER_AGENT)
-                        .and_then(|value| value.to_str().ok())
-                        .unwrap_or("unknown"),
+                    &source_ip.to_string(),
+                    &sanitize_metadata(
+                        headers
+                            .get(axum::http::header::USER_AGENT)
+                            .and_then(|value| value.to_str().ok())
+                            .unwrap_or("unknown"),
+                        128,
+                    ),
                 )
                 .ok()
                 .flatten()
@@ -844,7 +950,12 @@ async fn xmlrpc(
         return xml_fault(404, "Unknown method");
     }
     let config = state.config.load();
-    let group = config.group_for_ip(client_ip(&headers, peer.ip()));
+    let Ok(source_ip) = client_ip(&headers, peer.ip(), config.require_forwarded_client_ip) else {
+        return xml_fault(400, "Missing or invalid client address");
+    };
+    let Some(group) = config.group_for_ip(source_ip) else {
+        return xml_fault(403, "No legacy key group");
+    };
     let keys = match config.keys_for_group(group) {
         Ok(keys) => keys,
         Err(error) => {
@@ -888,13 +999,102 @@ fn xml_escape(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
-fn client_ip(headers: &HeaderMap, peer: std::net::IpAddr) -> std::net::IpAddr {
-    if !peer.is_loopback() {
-        return peer;
+fn client_ip(
+    headers: &HeaderMap,
+    peer: std::net::IpAddr,
+    require_forwarded: bool,
+) -> Result<std::net::IpAddr, ApiError> {
+    if !require_forwarded || !peer.is_loopback() {
+        return Ok(peer);
     }
-    headers
-        .get("x-real-ip")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(peer)
+    let values = headers.get_all("x-real-ip").iter().collect::<Vec<_>>();
+    if values.len() != 1 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            "missing or invalid client address",
+        ));
+    }
+    let value = values[0]
+        .to_str()
+        .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid client address"))?;
+    if value.trim() != value {
+        return Err(ApiError(StatusCode::BAD_REQUEST, "invalid client address"));
+    }
+    value
+        .parse()
+        .map_err(|_| ApiError(StatusCode::BAD_REQUEST, "invalid client address"))
+}
+
+fn valid_label(value: &str, maximum: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= maximum
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+}
+
+fn valid_local_address(value: &str) -> bool {
+    if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
+        return false;
+    }
+    let Some((interface, address)) = value.split_once(':') else {
+        return false;
+    };
+    valid_label(interface, 64) && address.parse::<std::net::IpAddr>().is_ok()
+}
+
+pub(crate) fn sanitize_metadata(value: &str, maximum: usize) -> String {
+    let cleaned = value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                '?'
+            } else {
+                character
+            }
+        })
+        .take(maximum)
+        .collect::<String>();
+    if cleaned.is_empty() {
+        "unknown".into()
+    } else {
+        cleaned
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enrollment_fields_reject_control_and_ambiguous_values() {
+        assert!(valid_label("panel.example.net", 255));
+        assert!(!valid_label("panel\n.example", 255));
+        assert!(!valid_label("", 255));
+        assert!(valid_local_address("eth0:192.0.2.10"));
+        assert!(valid_local_address("eth0:2001:db8::10"));
+        assert!(!valid_local_address("eth0:not-an-ip"));
+        assert!(!valid_local_address("eth0:192.0.2.10\n"));
+    }
+
+    #[test]
+    fn forwarded_address_requirement_fails_closed() {
+        let loopback = "127.0.0.1".parse().unwrap();
+        assert!(client_ip(&HeaderMap::new(), loopback, true).is_err());
+        let mut headers = HeaderMap::new();
+        headers.insert("x-real-ip", HeaderValue::from_static("192.0.2.10"));
+        assert_eq!(
+            client_ip(&headers, loopback, true).unwrap().to_string(),
+            "192.0.2.10"
+        );
+        headers.insert("x-real-ip", HeaderValue::from_static("192.0.2.10:443"));
+        assert!(client_ip(&headers, loopback, true).is_err());
+    }
+
+    #[test]
+    fn metadata_controls_are_replaced() {
+        assert_eq!(sanitize_metadata("safe\x1b[2Jname", 64), "safe?[2Jname");
+        assert_eq!(sanitize_metadata("\x00", 64), "?");
+    }
 }

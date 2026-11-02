@@ -18,7 +18,8 @@ executes remote configuration.
 ## Key Selection
 
 Groups contain key owners, keys, and optional CIDRs. A key is selected when its
-owner belongs to the requested group.
+owner belongs to the requested group. A group is not visible to the unsigned
+XML-RPC compatibility route unless `legacy_xmlrpc = true` is explicitly set.
 
 The native API supports:
 
@@ -26,8 +27,9 @@ The native API supports:
 - Non-public groups authenticated by a group or machine token.
 
 The XML-RPC compatibility endpoint selects a group from the server-observed
-source address, using the longest matching CIDR. If no CIDR matches, it uses the
-default group.
+source address, using the longest matching CIDR among legacy-enabled groups.
+If no CIDR matches, it uses the default group only when that group is also
+legacy-enabled.
 
 Keys are parsed with the OpenSSH key format and deduplicated by fingerprint.
 The administration interface displays the canonical OpenSSH algorithm, such as
@@ -59,6 +61,11 @@ The public endpoint is unauthenticated and returns only the explicitly
 configured default public group. A private request never falls back to that
 group after token failure.
 
+The cleartext server binds to loopback by default. Requests arriving through a
+loopback proxy must carry exactly one valid `X-Real-IP` header unless
+`require_forwarded_client_ip = false` is explicitly configured for direct
+development.
+
 ## Compatibility API
 
 ```text
@@ -82,7 +89,13 @@ local token with mode `0600`.
 
 Enrollment requests expire after 15 minutes. The server limits each source
 address to three requests per ten minutes and caps the pending queue at 100.
+Expired pending records are removed after one hour while audit records remain.
 Each pending request receives a short code for out-of-band comparison.
+
+Enrollment names and hostnames are limited to short ASCII hostname characters.
+Interface/address entries must contain a safe interface name and a parsed IP
+address. Request bodies, nonces, hostnames, addresses, and metadata have
+explicit size limits.
 
 Approved machine tokens can be revoked or hidden. Retiring an enrollment
 revokes its token and hides the old record in one transaction. Audit records
@@ -151,6 +164,8 @@ same directory, `fsync`, and atomically replace the active file.
 The server runs as the unprivileged `ssh-key-sync` user with systemd filesystem,
 namespace, memory-execution, and address-family restrictions. The TLS proxy
 listens publicly and proxies `/v1/` and `/xmlrpc/` to loopback port `18080`.
+The service has no outbound network access, a memory ceiling, a task ceiling,
+and a restrictive umask.
 
 Client synchronization runs from systemd every two hours with a randomized
 delay, or from the equivalent managed cron entry on older systems. Optional

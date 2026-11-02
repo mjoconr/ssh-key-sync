@@ -1,12 +1,19 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 
-use std::{path::Path, sync::Mutex, time::Duration};
+use std::{
+    os::unix::fs::PermissionsExt as _,
+    path::{Path, PathBuf},
+    sync::Mutex,
+    time::Duration,
+};
 
 use rusqlite::{Connection, OptionalExtension, backup::Backup, params};
 use serde::Serialize;
 use ssh_key_sync_core::{new_token, token_digest, unix_now};
 
 const REQUEST_TTL: u64 = 900;
+const EXPIRED_ENROLLMENT_RETENTION: u64 = 3_600;
+const MAX_ENROLLMENT_ROWS: i64 = 20_000;
 
 pub(crate) struct State {
     db: Mutex<Connection>,
@@ -52,7 +59,7 @@ impl State {
             std::fs::create_dir_all(parent)
                 .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
         }
-        let db = Connection::open(path)?;
+        let db = Connection::open(&path)?;
         db.execute_batch(
             "PRAGMA journal_mode=WAL;
              CREATE TABLE IF NOT EXISTS enrollments (
@@ -78,6 +85,7 @@ impl State {
         ensure_column(&db, "machine_tokens", "last_used_at", "INTEGER")?;
         ensure_column(&db, "machine_tokens", "last_source_ip", "TEXT")?;
         ensure_column(&db, "machine_tokens", "last_client_version", "TEXT")?;
+        set_private_permissions(path.as_ref())?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -95,6 +103,10 @@ impl State {
         let now = unix_now();
         let expires = now + REQUEST_TTL;
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        db.execute(
+            "DELETE FROM enrollments WHERE status='pending' AND expires_at<?1",
+            [now.saturating_sub(EXPIRED_ENROLLMENT_RETENTION) as i64],
+        )?;
         let recent: i64 = db.query_row(
             "SELECT COUNT(*) FROM enrollments WHERE source_ip=?1 AND created_at>=?2",
             params![source_ip, now.saturating_sub(600) as i64],
@@ -105,7 +117,8 @@ impl State {
             [now as i64],
             |row| row.get(0),
         )?;
-        if recent >= 3 || pending >= 100 {
+        let total: i64 = db.query_row("SELECT COUNT(*) FROM enrollments", [], |row| row.get(0))?;
+        if recent >= 3 || pending >= 100 || total >= MAX_ENROLLMENT_ROWS {
             return Err(rusqlite::Error::InvalidQuery);
         }
         let addresses = serde_json::to_string(local_addresses)
@@ -378,6 +391,26 @@ impl State {
     }
 }
 
+fn set_private_permissions(path: &Path) -> rusqlite::Result<()> {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).map_err(|error| {
+        rusqlite::Error::InvalidParameterName(format!("cannot secure {}: {error}", path.display()))
+    })?;
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+        if sidecar.exists() {
+            std::fs::set_permissions(&sidecar, std::fs::Permissions::from_mode(0o600)).map_err(
+                |error| {
+                    rusqlite::Error::InvalidParameterName(format!(
+                        "cannot secure {}: {error}",
+                        sidecar.display()
+                    ))
+                },
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn ensure_column(
     db: &Connection,
     table: &str,
@@ -511,7 +544,12 @@ mod tests {
     #[test]
     fn state_backup_is_a_consistent_snapshot() {
         let dir = tempfile::tempdir().unwrap();
-        let state = State::open(dir.path().join("state.db")).unwrap();
+        let database = dir.path().join("state.db");
+        let state = State::open(&database).unwrap();
+        assert_eq!(
+            std::fs::metadata(&database).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
         state
             .create_enrollment(
                 "host-a",
@@ -530,5 +568,40 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM enrollments", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn old_expired_enrollment_rows_are_pruned() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State::open(dir.path().join("state.db")).unwrap();
+        state
+            .create_enrollment(
+                "old",
+                "old",
+                &[],
+                "192.0.2.1",
+                &token_digest("old-secret"),
+                &token_digest("old-token"),
+            )
+            .unwrap();
+        {
+            let db = state.db.lock().unwrap();
+            db.execute(
+                "UPDATE enrollments SET expires_at=?1",
+                [(unix_now() - EXPIRED_ENROLLMENT_RETENTION - 1) as i64],
+            )
+            .unwrap();
+        }
+        state
+            .create_enrollment(
+                "new",
+                "new",
+                &[],
+                "192.0.2.2",
+                &token_digest("new-secret"),
+                &token_digest("new-token"),
+            )
+            .unwrap();
+        assert_eq!(state.list_enrollments().unwrap().len(), 1);
     }
 }

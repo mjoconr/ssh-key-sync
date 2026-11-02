@@ -1,5 +1,5 @@
 schema_version = 1
-server_url = "http://127.0.0.1:8080"
+server_url = "http://127.0.0.1:18080"
 verifying_key_file = "/etc/ssh-key-sync/signing.pub"
 authorized_keys_file = "/etc/ssh/authorized_keys.d/root"
 allow_empty = false

@@ -14,17 +14,23 @@ configuration.
 - Atomic `authorized_keys` replacement with empty-response protection.
 - Separate managed and existing authorization files.
 - Safe `sshd` changes with validation, reload, and rollback.
-- systemd timer deployment.
+- systemd timers and cron-only client support.
 - Optional checksum-verified client and server auto-update timers.
 - Online SQLite state backups with retention.
+- Enrollment approval, token lifecycle, audit history, and a terminal admin UI.
+- Native x86-64 and ARM64 release builds for client and server.
 
 ## Status
 
-Version `0.2.x` provides key retrieval, installation, and machine enrollment.
-Version `0.3.x` adds a local terminal administration interface. Signed client
-self-updates and a web interface are not implemented yet.
-Version `0.4.x` adds validated atomic key/group/CIDR editing and live server
-configuration reload.
+Version `0.4.9` is the current release. It provides signed key responses,
+enrollment and machine-token workflows, validated key/group/CIDR edits, a
+terminal administration interface, systemd and cron deployment, checksum-verified
+optional auto-updates, SQLite backups, and x86-64/ARM64 static builds.
+
+There is no web interface. Release archives are checksum-verified, but an
+independent cryptographic signature or build attestation over those checksums
+is not implemented yet. See [roadmap.md](docs/roadmap.md) for the remaining
+security and operations work.
 
 ## Install
 
@@ -56,6 +62,9 @@ curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/inst
 above. Add `--enroll HOSTNAME` instead of `--enable-timer` for a private group.
 Add `--enable-auto-update` to enable the daily client upgrade timer.
 
+The installer uses the systemd timer when systemd is available. Otherwise it
+uses the client's `install-cron` command after enrollment approval.
+
 ## Server
 
 ```sh
@@ -78,8 +87,11 @@ curl -fsSL \
   sudo sh -s -- --enable-auto-update
 ```
 
-See [server.toml](examples/server.toml) and
-[architecture.md](docs/architecture.md).
+Review [operations.md](docs/operations.md) before enabling the server update,
+backup, or conditional reboot timers.
+
+See [server.toml](examples/server.toml), [architecture.md](docs/architecture.md),
+and [roadmap.md](docs/roadmap.md).
 
 ## Client
 
@@ -98,7 +110,9 @@ ssh-key-sync-client --config /etc/ssh-key-sync/client.toml configure-sshd --appl
 ## Legacy XML-RPC
 
 `POST /xmlrpc/` implements `ssh.getKeys` for existing clients. It uses the
-server-observed client address and configured CIDR rules.
+server-observed client address and configured CIDR rules. It is a compatibility
+interface for systems that cannot use the native HTTPS client; monitor its use
+so it can be retired after those systems migrate.
 
 ## Development
 
@@ -107,6 +121,7 @@ cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets -- -D warnings
 scripts/docker-test.sh
+scripts/clean-local-cache.sh
 ```
 
 See [development.md](docs/development.md) and [security.md](docs/security.md).

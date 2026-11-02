@@ -19,7 +19,9 @@ use ratatui::{
     text::Line,
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
-use ssh_key_sync_core::{Config, parse_public_key, public_key_algorithm, signing_key_fingerprint};
+use ssh_key_sync_core::{
+    Config, parse_public_key, public_key_algorithm, signing_key_fingerprint, unix_now,
+};
 
 use crate::{
     config_edit, open_state, sanitize_metadata,
@@ -199,7 +201,13 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                 }
                 KeyCode::Enter => {
                     if let Some(group) = groups.get(app.group_index) {
-                        if app.state.approve(&request_id, group)? {
+                        let expires_at = app
+                            .config
+                            .groups
+                            .get(group.as_str())
+                            .and_then(|entry| entry.token_ttl_days)
+                            .map(|days| unix_now().saturating_add(days.saturating_mul(86_400)));
+                        if app.state.approve(&request_id, group, expires_at)? {
                             app.enrollment_index = 0;
                             app.message = replacement_for.map_or_else(
                                 || format!("approved {request_id} into {group}"),
@@ -1396,6 +1404,8 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 sanitize_metadata(&item.group, 128),
                 if item.revoked_at.is_some() {
                     "revoked"
+                } else if item.expires_at.is_some_and(|expiry| expiry <= unix_now()) {
+                    "expired"
                 } else {
                     "active"
                 }
@@ -1426,6 +1436,21 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                 Line::from(format!("Label: {}", sanitize_metadata(&item.label, 255))),
                 Line::from(format!("Group: {}", sanitize_metadata(&item.group, 128))),
                 Line::from(format!("Created: {}", item.created_at)),
+                Line::from(format!(
+                    "Expires: {}",
+                    item.expires_at
+                        .map_or_else(|| "-".into(), |value| value.to_string())
+                )),
+                Line::from(format!(
+                    "Status: {}",
+                    if item.revoked_at.is_some() {
+                        "revoked"
+                    } else if item.expires_at.is_some_and(|expiry| expiry <= unix_now()) {
+                        "expired"
+                    } else {
+                        "active"
+                    }
+                )),
                 Line::from(format!(
                     "Revoked: {}",
                     item.revoked_at
@@ -1504,6 +1529,12 @@ fn draw_groups(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                     Line::from(format!(
                         "Legacy XML-RPC: {}",
                         if group.legacy_xmlrpc { "yes" } else { "no" }
+                    )),
+                    Line::from(format!(
+                        "Token TTL: {}",
+                        group
+                            .token_ttl_days
+                            .map_or_else(|| "never".into(), |days| format!("{days} days"))
                     )),
                     Line::from("CIDRs:"),
                 ];

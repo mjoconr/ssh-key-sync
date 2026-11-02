@@ -38,13 +38,13 @@ Backups are created atomically, but restoration is currently manual. Add:
 
 ### Token Expiry And Rotation
 
-Approved machine tokens currently remain valid until revoked. Add:
+Optional per-group token lifetimes are implemented, and expiry is enforced by
+the private key endpoint. The CLI and TUI show expiry and use the replacement
+enrollment flow for rotation. Remaining work:
 
-- optional expiry policies per group and token;
-- planned rotation with an overlap window;
-- explicit last-used visibility and stale-token reporting;
-- pre-expiry warnings and audit entries;
-- tests proving expired and revoked tokens cannot fetch private groups.
+- per-token overrides in addition to group defaults;
+- pre-expiry warnings and scheduled stale-token reports;
+- notification delivery through the monitoring interface.
 
 ### Dependency And Advisory Maintenance
 

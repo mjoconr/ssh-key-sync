@@ -81,6 +81,9 @@ pub enum Visibility {
 pub struct GroupConfig {
     /// Whether anonymous clients may fetch this group.
     pub visibility: Visibility,
+    /// Optional lifetime for machine tokens approved into this group.
+    #[serde(default)]
+    pub token_ttl_days: Option<u64>,
     /// Whether the unauthenticated XML-RPC compatibility route may serve it.
     #[serde(default)]
     pub legacy_xmlrpc: bool,
@@ -195,13 +198,21 @@ impl Config {
         if default.visibility != Visibility::Public {
             return Err(Error::InvalidConfig("default_group must be public".into()));
         }
-        for group in self.groups.keys() {
-            if group.trim().is_empty()
-                || !group
+        for (name, group) in &self.groups {
+            if name.trim().is_empty()
+                || !name
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
             {
                 return Err(Error::InvalidConfig("invalid group identifier".into()));
+            }
+            if group
+                .token_ttl_days
+                .is_some_and(|days| days == 0 || days > 3650)
+            {
+                return Err(Error::InvalidConfig(
+                    "group token_ttl_days must be between 1 and 3650".into(),
+                ));
             }
         }
         let mut fingerprints = BTreeSet::new();
@@ -592,6 +603,18 @@ digest = "{}"
         assert_eq!(config.group_for_ip("192.0.2.1".parse().unwrap()), None);
         assert_eq!(config.group_for_token("secret"), Some("private"));
         assert_eq!(config.group_for_token("wrong"), None);
+    }
+
+    #[test]
+    fn group_token_ttl_is_optional_and_bounded() {
+        let mut config = config();
+        assert_eq!(config.groups["private"].token_ttl_days, None);
+        config.groups.get_mut("private").unwrap().token_ttl_days = Some(90);
+        assert!(config.validate().is_ok());
+        config.groups.get_mut("private").unwrap().token_ttl_days = Some(0);
+        assert!(config.validate().is_err());
+        config.groups.get_mut("private").unwrap().token_ttl_days = Some(3651);
+        assert!(config.validate().is_err());
     }
 
     #[test]

@@ -22,6 +22,8 @@ changing configuration on clients.
 
 - Native responses are signed with Ed25519 and bound to a request nonce.
 - Tokens are at least 256 random bits; the server stores only SHA-256 digests.
+- Groups may set a bounded machine-token lifetime. Expired tokens cannot fetch
+  keys and appear as expired in the administration CLI and TUI.
 - Bearer tokens are not sent over plaintext HTTP.
 - Enrollment requests expire after 15 minutes and are rate-limited by observed
   source address.

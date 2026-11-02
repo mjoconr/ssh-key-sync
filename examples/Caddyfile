@@ -15,7 +15,7 @@ keys.example.net {
 			fields {
 				request>headers>Authorization delete
 				request>headers>Cookie delete
-				request>headers>X-Real-IP delete
+				request>headers>X-Real-Ip delete
 			}
 		}
 	}

@@ -20,6 +20,14 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check shell scripts
+        run: |
+          sh -n install.sh
+          sh -n install-server.sh
+          bash -n scripts/build-musl.sh
+          bash -n scripts/clean-local-cache.sh
+          bash -n scripts/sign-release.sh
+
       - name: Check workspace
         run: cargo check --workspace --locked
 

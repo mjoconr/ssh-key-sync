@@ -88,10 +88,11 @@ Before creating a tag:
 4. Merge through a protected pull request and wait for the required `check` job
    and CodeQL analysis.
 5. Create and push an annotated immutable tag.
-6. Wait for both native architecture jobs and the release job to pass.
-7. Verify `SHA256SUMS`, the ARM64 binary architecture, and the latest-release
-   redirect.
-8. Deploy through the packaged updater and verify health before closing the
+6. Wait for both native architecture jobs and the draft-release job to pass.
+7. Run `scripts/sign-release.sh vX.Y.Z` with the offline release key.
+8. Verify `SHA256SUMS.sig`, the ARM64 binary architecture, and the
+   latest-release redirect.
+9. Deploy through the packaged updater and verify health before closing the
    release.
 
 Major dependency upgrades are not merged solely because Dependabot opened them.
@@ -100,4 +101,7 @@ upgrades in separate pull requests.
 
 Current priorities and deferred work are tracked in
 [roadmap.md](roadmap.md).
+
+Release signing, trust anchors, bootstrap, and key rotation are documented in
+[releases.md](releases.md).
 

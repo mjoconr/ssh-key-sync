@@ -28,6 +28,8 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 pub const PROTOCOL_SCHEMA_VERSION: u32 = 1;
 /// Default interval used by the managed client timer.
 pub const DEFAULT_SYNC_INTERVAL_HOURS: u64 = 2;
+const RELEASE_SIGNATURE_PREFIX: &str = "ssh-key-sync-release-v1:";
+const RELEASE_SIGNATURE_CONTEXT: &[u8] = b"ssh-key-sync-release-manifest-v1\0";
 
 /// Errors produced by shared validation and protocol logic.
 #[derive(Debug, Error)]
@@ -415,6 +417,63 @@ pub fn signing_key_fingerprint(path: impl AsRef<Path>) -> Result<String, Error> 
     ))
 }
 
+/// Sign a release checksum manifest with the release signing key.
+pub fn sign_release_manifest(manifest: &[u8], key: &SigningKey) -> String {
+    let mut message = Vec::with_capacity(RELEASE_SIGNATURE_CONTEXT.len() + manifest.len());
+    message.extend_from_slice(RELEASE_SIGNATURE_CONTEXT);
+    message.extend_from_slice(manifest);
+    format!(
+        "{RELEASE_SIGNATURE_PREFIX}{}",
+        URL_SAFE_NO_PAD.encode(key.sign(&message).to_bytes())
+    )
+}
+
+/// Verify a detached signature over a release checksum manifest.
+pub fn verify_release_manifest(
+    manifest: &[u8],
+    signature: &str,
+    key: &VerifyingKey,
+) -> Result<(), Error> {
+    let encoded = signature
+        .trim()
+        .strip_prefix(RELEASE_SIGNATURE_PREFIX)
+        .ok_or(Error::Signature)?;
+    let signature = Signature::from_slice(
+        &URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| Error::Signature)?,
+    )
+    .map_err(|_| Error::Signature)?;
+    let mut message = Vec::with_capacity(RELEASE_SIGNATURE_CONTEXT.len() + manifest.len());
+    message.extend_from_slice(RELEASE_SIGNATURE_CONTEXT);
+    message.extend_from_slice(manifest);
+    key.verify_strict(&message, &signature)
+        .map_err(|_| Error::Signature)
+}
+
+/// Encode a release verification key for storage as a public text file.
+pub fn encode_release_verifying_key(key: &VerifyingKey) -> String {
+    URL_SAFE_NO_PAD.encode(key.to_bytes())
+}
+
+/// Load a base64url-encoded release verification key.
+pub fn load_release_verifying_key(path: impl AsRef<Path>) -> Result<VerifyingKey, Error> {
+    let encoded = std::fs::read_to_string(path)?;
+    let bytes = URL_SAFE_NO_PAD.decode(encoded.trim()).map_err(|_| {
+        Error::InvalidConfig("release verification key is not valid base64url".into())
+    })?;
+    let bytes: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| Error::InvalidConfig("release verification key must be 32 bytes".into()))?;
+    VerifyingKey::from_bytes(&bytes)
+        .map_err(|_| Error::InvalidConfig("invalid release verification key".into()))
+}
+
+/// Return the SHA-256 fingerprint of a release verification key.
+pub fn release_verifying_key_fingerprint(key: &VerifyingKey) -> String {
+    format!("{:x}", Sha256::digest(key.to_bytes()))
+}
+
 /// Return the current Unix timestamp.
 pub fn unix_now() -> u64 {
     SystemTime::now()
@@ -485,5 +544,27 @@ digest = "{}"
     #[test]
     fn reports_public_key_algorithm() {
         assert_eq!(public_key_algorithm(KEY).unwrap(), "ssh-ed25519");
+    }
+
+    #[test]
+    fn release_manifest_signature_is_bound_to_exact_bytes() {
+        let signing_key = SigningKey::from_bytes(&[9_u8; 32]);
+        let manifest = b"hash  archive.tar.gz\n";
+        let signature = sign_release_manifest(manifest, &signing_key);
+        assert!(
+            verify_release_manifest(manifest, &signature, &signing_key.verifying_key()).is_ok()
+        );
+        assert!(
+            verify_release_manifest(b"changed\n", &signature, &signing_key.verifying_key())
+                .is_err()
+        );
+        assert!(
+            verify_release_manifest(
+                manifest,
+                &signature,
+                &SigningKey::from_bytes(&[10_u8; 32]).verifying_key()
+            )
+            .is_err()
+        );
     }
 }

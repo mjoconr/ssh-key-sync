@@ -19,15 +19,12 @@ ordered by operational risk, not by feature appeal.
 
 ### Signed Release Provenance
 
-The installers currently verify `SHA256SUMS`, but the archive and checksum come
-from the same GitHub release origin. Add one of:
+This was implemented in `v0.4.10`. The installers verify a signed
+`SHA256SUMS` against a separately installed release public key. Follow-up work:
 
-- a detached signature over the release manifest using an offline release key;
-- Sigstore/cosign verification; or
-- GitHub build-provenance attestations verified by the installer.
-
-The verification root must be independent of the release-download origin. Add
-failure tests and document key rotation and compromise recovery.
+- exercise key rotation and compromise recovery against a staging repository;
+- consider a second signature from a hardware-backed key;
+- monitor failed signature and downgrade attempts.
 
 ### Backup Verification And Restore Tooling
 

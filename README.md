@@ -15,22 +15,21 @@ configuration.
 - Separate managed and existing authorization files.
 - Safe `sshd` changes with validation, reload, and rollback.
 - systemd timers and cron-only client support.
-- Optional checksum-verified client and server auto-update timers.
+- Optional signature-verified client and server auto-update timers.
 - Online SQLite state backups with retention.
 - Enrollment approval, token lifecycle, audit history, and a terminal admin UI.
 - Native x86-64 and ARM64 release builds for client and server.
 
 ## Status
 
-Version `0.4.9` is the current release. It provides signed key responses,
+Version `0.4.10` is the current release. It provides signed key responses,
 enrollment and machine-token workflows, validated key/group/CIDR edits, a
 terminal administration interface, systemd and cron deployment, checksum-verified
-optional auto-updates, SQLite backups, and x86-64/ARM64 static builds.
+and cryptographically signed optional auto-updates, SQLite backups, and
+x86-64/ARM64 static builds.
 
-There is no web interface. Release archives are checksum-verified, but an
-independent cryptographic signature or build attestation over those checksums
-is not implemented yet. See [roadmap.md](docs/roadmap.md) for the remaining
-security and operations work.
+There is no web interface. See [releases.md](docs/releases.md) for release trust,
+first-install bootstrap, fork signing keys, and key rotation.
 
 ## Install
 
@@ -40,14 +39,16 @@ curl -fsSL \
   sudo sh
 ```
 
-The installer verifies `SHA256SUMS` and replaces only the client binary.
-Configuration under `/etc/ssh-key-sync` is preserved.
+First installation requires a manually verified release bootstrap because no
+installed binary exists to verify the first signature. Subsequent installers
+verify a signed `SHA256SUMS` against
+`/etc/ssh-key-sync/release.pub`; routine updates preserve configuration under
+`/etc/ssh-key-sync`.
 
 Static builds are published for both `x86_64` and `aarch64`, including
 Raspberry Pi systems.
 
-For automated server configuration, pass the server URL and its signing-key
-SHA-256 fingerprint:
+Once the signed installer trust anchor is installed, configure a client with:
 
 ```sh
 curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh |
@@ -61,6 +62,9 @@ curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/inst
 `--apply-ssh` uses the validated configuration and rollback behavior described
 above. Add `--enroll HOSTNAME` instead of `--enable-timer` for a private group.
 Add `--enable-auto-update` to enable the daily client upgrade timer.
+
+See [releases.md](docs/releases.md) before the first installation or before
+upgrading a pre-`v0.4.10` machine.
 
 The installer uses the systemd timer when systemd is available. Otherwise it
 uses the client's `install-cron` command after enrollment approval.

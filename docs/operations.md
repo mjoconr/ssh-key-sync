@@ -49,7 +49,9 @@ reproducible package-based bootstrap is future work; perform these steps once:
    the real `public_url`.
 4. Make `server.toml` and `signing.key` readable by the
    `ssh-key-sync` group but not other users.
-5. Install the release binary with `install-server.sh --no-restart`.
+5. Follow the signed first-install bootstrap in
+   [releases.md](releases.md) and install the binary with
+   `install-server.sh --no-restart`.
 6. Install [the server unit](../deploy/ssh-key-sync-server.service), run
    `systemctl daemon-reload`, and enable the service.
 7. Install and validate the TLS proxy route before enrolling production
@@ -78,6 +80,10 @@ runuser -u ssh-key-sync -- ssh-key-sync-server check-config \
 
 ## Public-Group Installation
 
+The client must already have the reviewed release trust anchor at
+`/etc/ssh-key-sync/release.pub`. See [releases.md](releases.md) for the
+first-install bootstrap.
+
 Obtain the signing-key fingerprint from a trusted administrator:
 
 ```sh
@@ -98,14 +104,15 @@ curl -fsSL \
 
 The command:
 
-1. Downloads the latest static client and checksums.
-2. Verifies the archive.
-3. Installs or upgrades `/usr/local/bin/ssh-key-sync-client`.
-4. Downloads `/v1/signing-key` and verifies its fingerprint.
-5. Writes `/etc/ssh-key-sync/client.toml`.
-6. Fetches and verifies the public key set without changing files.
-7. Applies and validates the two-file `sshd` configuration.
-8. Installs and enables the systemd timer, or prints the cron-only follow-up.
+1. Downloads the latest static client, checksums, and signature.
+2. Verifies the signature using `/etc/ssh-key-sync/release.pub`.
+3. Verifies the archive against the signed checksums.
+4. Installs or upgrades `/usr/local/bin/ssh-key-sync-client`.
+5. Downloads `/v1/signing-key` and verifies its fingerprint.
+6. Writes `/etc/ssh-key-sync/client.toml`.
+7. Fetches and verifies the public key set without changing files.
+8. Applies and validates the two-file `sshd` configuration.
+9. Installs and enables the systemd timer, or prints the cron-only follow-up.
 
 Verify:
 
@@ -305,7 +312,7 @@ verify its recorded version:
 
 ```sh
 curl -fsSL \
-  https://github.com/mjoconr/ssh-key-sync/releases/download/v0.4.9/SHA256SUMS
+  https://github.com/mjoconr/ssh-key-sync/releases/download/v0.4.10/SHA256SUMS
 ssh-key-sync-server --version
 ```
 
@@ -314,7 +321,7 @@ The updater keeps the previous binary at
 
 ### Automatic Updates
 
-Client and server upgrades are pull-based, checksum-verified, and opt-in. The
+Client and server upgrades are pull-based, signature-verified, and opt-in. The
 installers can add a daily systemd timer, or a daily root cron entry on older
 client systems without systemd:
 
@@ -334,11 +341,10 @@ The server updater validates the candidate configuration, restarts the
 service, and restores the previous binary if the health check fails. Updates
 do not modify the database, signing key, or either machine's client settings.
 
-Checksum verification detects partial or corrupted downloads and mismatched
-artifacts. It is not yet an independent release signature: the archive and its
-checksum currently come from the same GitHub release origin. Signed release
-provenance is tracked as release-blocking work in
-[roadmap.md](roadmap.md).
+The updater verifies `SHA256SUMS.sig` against the local release public key,
+then verifies every artifact against the signed checksums. It also rejects an
+older version before restarting. See [releases.md](releases.md) for first-install
+bootstrap and key rotation.
 
 Automatic operating-system updates remain the operating system's
 responsibility. On Debian or Ubuntu, configure `unattended-upgrades` for the

@@ -107,10 +107,11 @@ and external health monitoring appropriate to its traffic.
 
 ### Recovery And Dependencies
 
-Backups are created safely but restoration is manual. Restore one to a
-non-production copy and verify SQLite integrity before relying on it. Major
-dependency upgrades, including cryptographic libraries, require deliberate
-review and the complete integration suite.
+Backup creation and guarded restore are implemented, including integrity and
+schema checks, a stopped-service requirement, and an automatic pre-restore
+snapshot. Exercise the complete procedure on a production-like non-production
+system. Major dependency upgrades, including cryptographic libraries, require
+deliberate review and the complete integration suite.
 
 ### Old TLS Clients And Clock Skew
 

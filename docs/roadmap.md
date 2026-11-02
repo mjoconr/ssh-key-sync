@@ -28,12 +28,10 @@ This was implemented in `v0.4.10`. The installers verify a signed
 
 ### Backup Verification And Restore Tooling
 
-Backups are created atomically, but restoration is currently manual. Add:
+Backup verification, stopped-service restore, automatic pre-restore snapshots,
+and restore tests are implemented. Remaining work:
 
-- `backup verify` using SQLite integrity and schema checks;
-- `backup restore --input FILE --confirm` with a stopped-service check;
-- automatic pre-restore backup and rollback;
-- an integration test that restores state and completes a token request;
+- exercise restore and rollback against a production-like systemd installation;
 - optional encrypted off-host backup guidance.
 
 ### Token Expiry And Rotation

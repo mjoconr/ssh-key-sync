@@ -238,6 +238,7 @@ enum GroupCommand {
     /// Explicitly enable or disable unauthenticated legacy XML-RPC for a group.
     SetLegacy {
         group: String,
+        #[arg(action = clap::ArgAction::Set)]
         enabled: bool,
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
@@ -1096,5 +1097,21 @@ mod tests {
     fn metadata_controls_are_replaced() {
         assert_eq!(sanitize_metadata("safe\x1b[2Jname", 64), "safe?[2Jname");
         assert_eq!(sanitize_metadata("\x00", 64), "?");
+    }
+
+    #[test]
+    fn legacy_group_toggle_requires_an_explicit_value() {
+        let cli =
+            Cli::try_parse_from(["ssh-key-sync-server", "group", "set-legacy", "oeg", "true"])
+                .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Group {
+                command: GroupCommand::SetLegacy { enabled: true, .. }
+            }
+        ));
+        assert!(
+            Cli::try_parse_from(["ssh-key-sync-server", "group", "set-legacy", "oeg"]).is_err()
+        );
     }
 }

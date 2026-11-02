@@ -312,7 +312,7 @@ verify its recorded version:
 
 ```sh
 curl -fsSL \
-  https://github.com/mjoconr/ssh-key-sync/releases/download/v0.4.10/SHA256SUMS
+  https://github.com/mjoconr/ssh-key-sync/releases/download/v0.4.11/SHA256SUMS
 ssh-key-sync-server --version
 ```
 

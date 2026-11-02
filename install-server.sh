@@ -263,6 +263,19 @@ if [ -x /usr/local/bin/ssh-key-sync-server ]; then
 fi
 "$candidate" check-config --config "$config"
 
+if [ -x /usr/local/bin/ssh-key-sync-server ] &&
+    [ "$candidate_version" = "$current_version" ]
+then
+    if [ "$enable_auto_update" -eq 1 ] ||
+        [ "$enable_reboot_timer" -eq 1 ] ||
+        [ "$enable_backup_timer" -eq 1 ]
+    then
+        install_server_automation
+    fi
+    echo "ssh-key-sync-server $current_version is already installed"
+    exit 0
+fi
+
 if [ "$restart" -eq 0 ]; then
     install -m 0755 "$candidate" /usr/local/bin/ssh-key-sync-server
     if [ "$enable_auto_update" -eq 1 ] ||

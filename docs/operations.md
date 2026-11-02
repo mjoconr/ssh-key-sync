@@ -38,6 +38,11 @@ The public proxy must route `/v1/` and `/xmlrpc/` to
 source-address headers. The server ignores `X-Real-IP` unless the direct peer
 is loopback.
 
+A Caddy example is provided at [examples/Caddyfile](../examples/Caddyfile).
+Caddy must have its admin API disabled unless deliberately used, and it must
+overwrite rather than append `X-Real-IP`. The example exposes only the API
+routes and returns `404` for everything else.
+
 ### Initial Server Bootstrap
 
 The current release assumes an existing systemd server installation. A

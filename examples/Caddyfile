@@ -1,0 +1,32 @@
+{
+	admin off
+	email admin@example.net
+}
+
+keys.example.net {
+	@legacy path /xmlrpc /xmlrpc/ /xmlrpc/index.php
+	handle @legacy {
+		rewrite * /xmlrpc/
+		reverse_proxy 127.0.0.1:18080 {
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	@api path /v1/*
+	handle @api {
+		reverse_proxy 127.0.0.1:18080 {
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	handle {
+		respond 404
+	}
+
+	header {
+		Cache-Control "no-store"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+}

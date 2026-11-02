@@ -95,7 +95,9 @@ All auto-updating hosts currently follow GitHub's latest release. Add:
 
 ### Reverse-Proxy Packaging
 
-Document and test a supported proxy configuration for:
+The Caddy example in [examples/Caddyfile](../examples/Caddyfile) documents the
+current route and source-address requirements. Continue to test and package it
+for:
 
 - `/v1/` and `/xmlrpc/` routing;
 - request-body and header forwarding;

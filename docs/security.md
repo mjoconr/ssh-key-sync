@@ -73,6 +73,8 @@ bootstrap builds a verifier from reviewed source and compares the release-key
 fingerprint through an independent channel.
 
 See [releases.md](releases.md) for the complete update and rotation model.
+See [public-exposure-audit.md](public-exposure-audit.md) for the current public
+deployment review and remaining risks.
 
 ## Secrets
 

@@ -97,7 +97,7 @@ Review [operations.md](docs/operations.md) before enabling the server update,
 backup, or conditional reboot timers.
 
 See [server.toml](examples/server.toml), [architecture.md](docs/architecture.md),
-and [roadmap.md](docs/roadmap.md).
+[Caddyfile](examples/Caddyfile), and [roadmap.md](docs/roadmap.md).
 
 ## Client
 

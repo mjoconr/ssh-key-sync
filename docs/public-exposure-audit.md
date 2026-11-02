@@ -95,8 +95,11 @@ before it can prove its own integrity. Establish first trust with a verifier
 built from reviewed source and compare the release-key fingerprint through a
 second channel. Prefer the installed updater script for routine upgrades.
 
-Release-key rotation and compromise recovery have not yet been exercised
-outside the documented procedure.
+Release-key rotation and compromise recovery have been exercised with isolated
+keys: the replacement trust anchor rejected the retired key, accepted the new
+key, and rejected a malicious manifest signed by the retired key. A real
+production rotation still requires independently confirmed fingerprints and
+coordinated trust-anchor replacement.
 
 ### Availability
 
@@ -109,9 +112,12 @@ and external health monitoring appropriate to its traffic.
 
 Backup creation and guarded restore are implemented, including integrity and
 schema checks, a stopped-service requirement, and an automatic pre-restore
-snapshot. Exercise the complete procedure on a production-like non-production
-system. Major dependency upgrades, including cryptographic libraries, require
-deliberate review and the complete integration suite.
+snapshot. The complete procedure has been rehearsed against a production-like
+systemd instance, including active-service refusal, older-state restoration,
+pre-restore recovery, permission checks, service restart, and health validation.
+Repeat the rehearsal after schema or unit changes. Major dependency upgrades,
+including cryptographic libraries, require deliberate review and the complete
+integration suite.
 
 ### Old TLS Clients And Clock Skew
 

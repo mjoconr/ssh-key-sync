@@ -434,8 +434,16 @@ Restore refuses to proceed while the service is active. It creates a
 `state-before-restore-TIMESTAMP.db` snapshot first, preserves the destination
 owner and mode, removes stale WAL/SHM sidecars, atomically replaces the state,
 and verifies the restored file. Test the complete procedure against a
-non-production copy. Backups contain token digests and audit data, not plaintext
-machine tokens, but should still be protected as private data.
+non-production copy. The rehearsal should prove:
+
+1. restore refuses to run while `ssh-key-sync-server.service` is active;
+2. a verified snapshot restores the older state;
+3. the automatic pre-restore snapshot preserves the state that was replaced;
+4. state ownership and mode remain correct; and
+5. the service restarts and its loopback health check succeeds.
+
+Backups contain token digests and audit data, not plaintext machine tokens, but
+should still be protected as private data.
 
 ## Token Management
 

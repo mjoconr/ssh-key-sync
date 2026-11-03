@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeSet,
     fs,
     io::Write as _,
     os::unix::fs::{MetadataExt as _, PermissionsExt as _, chown},
@@ -22,14 +23,29 @@ impl Editor {
 
     pub(crate) fn add_group(
         &mut self,
-        name: String,
+        name: &str,
         public: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.config.groups.contains_key(&name) {
+        self.add_group_with_owners(name, public, &[])
+    }
+
+    pub(crate) fn add_group_with_owners(
+        &mut self,
+        name: &str,
+        public: bool,
+        owners: &[String],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if self.config.groups.contains_key(name) {
             return Err(format!("group already exists: {name}").into());
         }
+        let owners = owners.iter().collect::<BTreeSet<_>>();
+        for owner in &owners {
+            if !self.config.keys.contains_key(*owner) {
+                return Err(format!("unknown key owner: {owner}").into());
+            }
+        }
         self.config.groups.insert(
-            name,
+            name.to_owned(),
             GroupConfig {
                 visibility: if public {
                     Visibility::Public
@@ -41,6 +57,11 @@ impl Editor {
                 cidrs: vec![],
             },
         );
+        for owner in owners {
+            if let Some(entry) = self.config.keys.get_mut(owner) {
+                entry.groups.push(name.to_owned());
+            }
+        }
         self.save()
     }
 
@@ -220,9 +241,10 @@ keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtF
         fs::write(&path, CONFIG).unwrap();
         let original = fs::metadata(&path).unwrap();
         let mut editor = Editor::open(&path).unwrap();
-        editor.add_group("home".into(), false).unwrap();
+        editor
+            .add_group_with_owners("home", false, &["example".into()])
+            .unwrap();
         editor.add_cidr("home", "203.0.113.0/24").unwrap();
-        editor.assign_key("example", "home", true).unwrap();
         let config = Config::load(&path).unwrap();
         let persisted = fs::metadata(&path).unwrap();
         assert!(config.groups.contains_key("home"));

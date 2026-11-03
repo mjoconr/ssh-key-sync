@@ -370,9 +370,21 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
             }
             KeyCode::Enter if !name.trim().is_empty() => {
                 let added = name.trim().to_owned();
-                match app.config_edit(|editor| editor.add_group(added.clone(), public)) {
+                match app.config_edit(|editor| editor.add_group(&added, public)) {
                     Ok(()) => {
-                        app.message = format!("added {} group {added}", visibility(public));
+                        app.tab = Tab::Keys;
+                        app.key_index = 0;
+                        app.message = if app.config.keys.is_empty() {
+                            format!(
+                                "added {} group {added}; no key owners exist, press A to add one",
+                                visibility(public)
+                            )
+                        } else {
+                            format!(
+                                "added {} group {added}; select a key owner and press G to assign it",
+                                visibility(public)
+                            )
+                        };
                         app.overlay = Overlay::None;
                     }
                     Err(error) => app.message = error.to_string(),

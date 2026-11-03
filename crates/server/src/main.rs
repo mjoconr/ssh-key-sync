@@ -230,11 +230,14 @@ enum TokenCommand {
 
 #[derive(Debug, Subcommand)]
 enum GroupCommand {
-    /// Add an empty group.
+    /// Add a group, optionally assigning existing key owners.
     Add {
         name: String,
         #[arg(long)]
         public: bool,
+        /// Existing key owner to assign to the new group; repeat as needed.
+        #[arg(long = "owner", value_name = "OWNER")]
+        owners: Vec<String>,
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
     },
@@ -614,9 +617,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Add {
                     name,
                     public,
+                    owners,
                     config,
                 } => {
-                    config_edit::Editor::open(config)?.add_group(name, public)?;
+                    config_edit::Editor::open(config)?
+                        .add_group_with_owners(&name, public, &owners)?;
+                    if owners.is_empty() {
+                        eprintln!(
+                            "warning: group {name} has no key owners; assign one with: ssh-key-sync-server key assign OWNER {name}"
+                        );
+                    }
                 }
                 Remove { name, config } => {
                     config_edit::Editor::open(config)?.remove_group(&name)?;

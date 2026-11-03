@@ -234,6 +234,19 @@ ssh-key-sync-server key remove alice SHA256:fingerprint
 ssh-key-sync-server group remove staging
 ```
 
+Create a group and assign existing owners atomically with repeated `--owner`
+options:
+
+```sh
+ssh-key-sync-server group add SamplingLines \
+  --owner mike \
+  --owner martin
+```
+
+Without `--owner`, the CLI warns that the new group is empty. In the TUI,
+creating a group switches directly to the Keys view so an owner can be selected
+and assigned with `G`.
+
 `group remove` and `key remove` reject unsafe changes through normal
 configuration validation. A timestamped backup is created before each edit.
 

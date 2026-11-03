@@ -35,6 +35,8 @@ they do not grant SSH access.
   Requests have a 15-second timeout and application concurrency is limited.
 - Pending enrollment rows expire and are capped. Enrollment labels, hostnames,
   interface addresses, nonces and token digests are validated and bounded.
+- Conflicting active enrollment identities are surfaced to the administrator
+  and cannot be approved through the normal path.
 - The server runs as an unprivileged account with a read-only filesystem view,
   no capabilities, no outbound network, resource limits and additional systemd
   hardening. The signing key must be a regular file that is not world-readable;

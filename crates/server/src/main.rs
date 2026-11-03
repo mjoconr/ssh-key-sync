@@ -181,6 +181,9 @@ enum EnrollmentCommand {
         request_id: String,
         #[arg(long)]
         group: String,
+        /// Approve a replacement while an active identity conflict remains.
+        #[arg(long)]
+        replace_existing: bool,
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
     },
@@ -454,9 +457,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             EnrollmentCommand::Show { request_id, config } => {
                 let config = Config::load(config)?;
-                let enrollment = open_state(&config)?
+                let state = open_state(&config)?;
+                let enrollment = state
                     .enrollment_by_id(&request_id)?
                     .ok_or("request not found")?;
+                let conflicts = state.enrollment_conflicts(&enrollment)?;
                 let id = sanitize_metadata(&enrollment.id, 128);
                 let code = sanitize_metadata(&enrollment.code, 16);
                 let status = sanitize_metadata(&enrollment.status, 16);
@@ -465,8 +470,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let source_ip = sanitize_metadata(&enrollment.source_ip, 64);
                 let addresses = sanitize_metadata(&enrollment.local_addresses, 4096);
                 let group = sanitize_metadata(enrollment.group.as_deref().unwrap_or_default(), 128);
+                let conflicts = conflicts
+                    .iter()
+                    .map(|item| sanitize_metadata(&item.id, 128))
+                    .collect::<Vec<_>>()
+                    .join(",");
                 println!(
-                    "{} {} {} {} host={} source={} addresses={} group={} expires={}",
+                    "{} {} {} {} host={} source={} addresses={} group={} expires={} conflicts={}",
                     id,
                     code,
                     status,
@@ -475,12 +485,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     source_ip,
                     addresses,
                     group,
-                    enrollment.expires_at
+                    enrollment.expires_at,
+                    if conflicts.is_empty() {
+                        "-".into()
+                    } else {
+                        conflicts
+                    }
                 );
             }
             EnrollmentCommand::Approve {
                 request_id,
                 group,
+                replace_existing,
                 config,
             } => {
                 let config = Config::load(config)?;
@@ -490,8 +506,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let expires_at = group_config
                     .token_ttl_days
                     .map(|days| unix_now().saturating_add(days.saturating_mul(86_400)));
-                if open_state(&config)?.approve(&request_id, &group, expires_at)? {
+                let state = open_state(&config)?;
+                let enrollment = state
+                    .enrollment_by_id(&request_id)?
+                    .ok_or("request not found")?;
+                let conflicts = state.enrollment_conflicts(&enrollment)?;
+                if !conflicts.is_empty() && !replace_existing {
+                    let ids = conflicts
+                        .iter()
+                        .map(|item| item.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    return Err(format!(
+                        "active identity conflict: {ids}; use --replace-existing after verifying the replacement"
+                    )
+                    .into());
+                }
+                if state.approve(&request_id, &group, expires_at)? {
                     println!("approved {request_id} into {group}");
+                    if !conflicts.is_empty() {
+                        println!("conflicts replaced: {}", conflicts.len());
+                    }
                 } else {
                     return Err("request is missing, expired, or already decided".into());
                 }

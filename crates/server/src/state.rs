@@ -1,6 +1,7 @@
 #![allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 
 use std::{
+    collections::BTreeSet,
     os::unix::fs::PermissionsExt as _,
     path::{Path, PathBuf},
     sync::Mutex,
@@ -321,6 +322,38 @@ impl State {
         .optional()
     }
 
+    pub(crate) fn enrollment_conflicts(
+        &self,
+        candidate: &Enrollment,
+    ) -> rusqlite::Result<Vec<Enrollment>> {
+        let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+        let mut statement = db.prepare(
+            "SELECT e.id,e.code,e.name,e.hostname,e.local_addresses,e.source_ip,
+                    e.status,e.group_name,e.created_at,e.expires_at
+             FROM enrollments AS e
+             JOIN machine_tokens AS token ON token.id='machine-' || e.id
+             WHERE e.id<>?1 AND e.status='approved' AND e.hidden_at IS NULL
+               AND token.revoked_at IS NULL
+               AND (token.expires_at IS NULL OR token.expires_at>?2)",
+        )?;
+        let candidate_addresses = enrollment_addresses(&candidate.local_addresses);
+        let candidates = statement
+            .query_map(
+                params![candidate.id, unix_now() as i64],
+                Self::map_enrollment,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(candidates
+            .into_iter()
+            .filter(|existing| {
+                candidate.name.eq_ignore_ascii_case(&existing.name)
+                    || candidate.hostname.eq_ignore_ascii_case(&existing.hostname)
+                    || !candidate_addresses
+                        .is_disjoint(&enrollment_addresses(&existing.local_addresses))
+            })
+            .collect())
+    }
+
     pub(crate) fn revoke_token(&self, id: &str) -> rusqlite::Result<bool> {
         let now = unix_now();
         let db = self.db.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
@@ -447,6 +480,14 @@ impl State {
         )?;
         Ok(())
     }
+}
+
+fn enrollment_addresses(value: &str) -> BTreeSet<String> {
+    serde_json::from_str::<Vec<String>>(value)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|address| address.split_once(':').map(|(_, ip)| ip.to_owned()))
+        .collect()
 }
 
 fn set_private_permissions(path: &Path) -> rusqlite::Result<()> {
@@ -592,6 +633,54 @@ mod tests {
             )
             .unwrap();
         assert!(state.enrollment_for_secret(&id, "wrong").unwrap().is_none());
+    }
+
+    #[test]
+    fn conflicting_active_enrollments_are_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State::open(dir.path().join("state.db")).unwrap();
+        let (old_id, _, _) = state
+            .create_enrollment(
+                "panel",
+                "panel.example.net",
+                &["eth0:192.0.2.10".into()],
+                "198.51.100.10",
+                &token_digest("old-secret"),
+                &token_digest("old-token"),
+            )
+            .unwrap();
+        assert!(state.approve(&old_id, "restricted", None).unwrap());
+
+        let (new_id, _, _) = state
+            .create_enrollment(
+                "panel",
+                "panel.example.net",
+                &["eth0:192.0.2.10".into()],
+                "198.51.100.11",
+                &token_digest("new-secret"),
+                &token_digest("new-token"),
+            )
+            .unwrap();
+        let candidate = state.enrollment_by_id(&new_id).unwrap().unwrap();
+        let conflicts = state.enrollment_conflicts(&candidate).unwrap();
+        assert_eq!(conflicts.len(), 1);
+        assert_eq!(conflicts[0].id, old_id);
+
+        let (separate_id, _, _) = state
+            .create_enrollment(
+                "other",
+                "other.example.net",
+                &["eth0:192.0.2.20".into()],
+                "198.51.100.12",
+                &token_digest("other-secret"),
+                &token_digest("other-token"),
+            )
+            .unwrap();
+        let separate = state.enrollment_by_id(&separate_id).unwrap().unwrap();
+        assert!(state.enrollment_conflicts(&separate).unwrap().is_empty());
+
+        assert!(state.retire_enrollment(&old_id).unwrap());
+        assert!(state.enrollment_conflicts(&candidate).unwrap().is_empty());
     }
 
     #[test]

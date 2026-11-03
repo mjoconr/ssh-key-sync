@@ -53,6 +53,9 @@ changing configuration on clients.
   SQLite files are forced to mode `0600`.
 - Request bodies, response concurrency, request duration, nonces, enrollment
   labels, hostnames, and interface addresses are bounded.
+- Approval detects active enrollments that match the candidate by name,
+  hostname, or local address. Conflicting replacements require the explicit
+  replacement flow and retain the old token until the new session is verified.
 - Unauthenticated metadata is stripped of terminal control characters before
   storage or display.
 - Release artifacts include checksums and are built from a locked dependency set.

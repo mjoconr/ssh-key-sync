@@ -463,6 +463,11 @@ fn inspect_sshd() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn effective_authorized_keys_file() -> Result<String, Box<dyn std::error::Error>> {
+    let runtime_directory = Path::new("/run/sshd");
+    if !runtime_directory.exists() {
+        fs::create_dir(runtime_directory)?;
+        fs::set_permissions(runtime_directory, fs::Permissions::from_mode(0o755))?;
+    }
     let output = ProcessCommand::new("sshd")
         .args(["-T", "-C", "user=root,host=localhost,addr=127.0.0.1"])
         .output()?;

@@ -153,6 +153,20 @@ ssh-key-sync-client --config /etc/ssh-key-sync/client.toml configure-sshd
 ssh-key-sync-client --config /etc/ssh-key-sync/client.toml configure-sshd --apply
 ```
 
+After native access has been verified, legacy `authorized_keys` files can be
+quarantined without deleting their contents:
+
+```sh
+ssh-key-sync-client retire-legacy-authorized-keys
+ssh-key-sync-client retire-legacy-authorized-keys --apply
+```
+
+The command verifies that the managed file is non-empty, valid, and effective,
+then renames `.ssh/authorized_keys` and `.ssh/authorized_keys2` to timestamped
+backup names that sshd does not read. Keep the current SSH session open while
+verifying a new managed-key login. Do not run it on Proxmox hosts unless their
+host-managed keys have been preserved elsewhere.
+
 ## Legacy XML-RPC
 
 `POST /xmlrpc/` implements `ssh.getKeys` for existing clients. It uses the

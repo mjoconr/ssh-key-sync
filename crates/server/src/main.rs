@@ -181,9 +181,9 @@ enum EnrollmentCommand {
         request_id: String,
         #[arg(long)]
         group: String,
-        /// Approve a replacement while an active identity conflict remains.
-        #[arg(long)]
-        replace_existing: bool,
+        /// Approve despite an active identity conflict without retiring it.
+        #[arg(long = "allow-identity-conflict", alias = "replace-existing")]
+        allow_identity_conflict: bool,
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
     },
@@ -342,6 +342,7 @@ struct EnrollmentResponse {
     request_id: String,
     code: String,
     expires_at: u64,
+    identity_conflict: bool,
 }
 
 #[derive(Serialize)]
@@ -499,7 +500,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             EnrollmentCommand::Approve {
                 request_id,
                 group,
-                replace_existing,
+                allow_identity_conflict,
                 config,
             } => {
                 let config = Config::load(config)?;
@@ -514,21 +515,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .enrollment_by_id(&request_id)?
                     .ok_or("request not found")?;
                 let conflicts = state.enrollment_conflicts(&enrollment)?;
-                if !conflicts.is_empty() && !replace_existing {
+                if !conflicts.is_empty() && !allow_identity_conflict {
                     let ids = conflicts
                         .iter()
                         .map(|item| item.id.as_str())
                         .collect::<Vec<_>>()
                         .join(",");
                     return Err(format!(
-                        "active identity conflict: {ids}; use --replace-existing after verifying the replacement"
+                        "active identity conflict: {ids}; verify the machine and use --allow-identity-conflict only if both identities must remain active"
                     )
                     .into());
                 }
                 if state.approve(&request_id, &group, expires_at)? {
                     println!("approved {request_id} into {group}");
                     if !conflicts.is_empty() {
-                        println!("conflicts replaced: {}", conflicts.len());
+                        println!(
+                            "identity conflict acknowledged: {}; existing enrollments remain active",
+                            conflicts.len()
+                        );
                     }
                 } else {
                     return Err("request is missing, expired, or already decided".into());
@@ -977,12 +981,26 @@ async fn create_enrollment(
             &request.token_digest,
         )
         .map_err(|_| ApiError(StatusCode::CONFLICT, "unable to create enrollment"))?;
+    let enrollment = state
+        .state
+        .enrollment_by_id(&request_id)
+        .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "state error"))?
+        .ok_or(ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "enrollment state error",
+        ))?;
+    let identity_conflict = !state
+        .state
+        .enrollment_conflicts(&enrollment)
+        .map_err(|_| ApiError(StatusCode::INTERNAL_SERVER_ERROR, "state error"))?
+        .is_empty();
     Ok((
         StatusCode::CREATED,
         Json(EnrollmentResponse {
             request_id,
             code,
             expires_at,
+            identity_conflict,
         }),
     ))
 }

@@ -522,11 +522,14 @@ CLI option after verifying that the new request is the intended replacement:
 ```sh
 ssh-key-sync-server enrollment approve REQUEST_ID \
   --group GROUP \
-  --replace-existing
+  --allow-identity-conflict
 ```
 
-The old enrollment remains active until it is retired. This overlap is
-intentional so a broken replacement cannot remove the working credential first.
+This acknowledges the conflict; it does not retire anything. The old enrollment
+remains active until it is explicitly retired. This overlap is intentional so a
+broken replacement cannot remove the working credential first. Use this option
+only after confirming that both identities are legitimately distinct or that
+the replacement has been verified.
 
 ## Legacy Clients
 

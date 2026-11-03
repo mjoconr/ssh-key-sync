@@ -15,6 +15,20 @@ use ssh_key_sync_core::{new_token, token_digest, unix_now};
 const REQUEST_TTL: u64 = 900;
 const EXPIRED_ENROLLMENT_RETENTION: u64 = 3_600;
 const MAX_ENROLLMENT_ROWS: i64 = 20_000;
+const MAX_ENROLLMENTS_PER_SOURCE: i64 = 20;
+
+#[derive(Debug)]
+pub(crate) enum CreateEnrollmentError {
+    RateLimited,
+    QueueFull,
+    Database(rusqlite::Error),
+}
+
+impl From<rusqlite::Error> for CreateEnrollmentError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Database(error)
+    }
+}
 
 pub(crate) struct State {
     db: Mutex<Connection>,
@@ -101,7 +115,7 @@ impl State {
         source_ip: &str,
         secret_digest: &str,
         token_digest: &str,
-    ) -> rusqlite::Result<(String, String, u64)> {
+    ) -> Result<(String, String, u64), CreateEnrollmentError> {
         let id = new_token();
         let code = id.chars().take(8).collect::<String>().to_ascii_uppercase();
         let now = unix_now();
@@ -122,8 +136,11 @@ impl State {
             |row| row.get(0),
         )?;
         let total: i64 = db.query_row("SELECT COUNT(*) FROM enrollments", [], |row| row.get(0))?;
-        if recent >= 3 || pending >= 100 || total >= MAX_ENROLLMENT_ROWS {
-            return Err(rusqlite::Error::InvalidQuery);
+        if recent >= MAX_ENROLLMENTS_PER_SOURCE {
+            return Err(CreateEnrollmentError::RateLimited);
+        }
+        if pending >= 100 || total >= MAX_ENROLLMENT_ROWS {
+            return Err(CreateEnrollmentError::QueueFull);
         }
         let addresses = serde_json::to_string(local_addresses)
             .map_err(|error| rusqlite::Error::InvalidParameterName(error.to_string()))?;
@@ -687,7 +704,7 @@ mod tests {
     fn enrollment_requests_are_rate_limited_by_source() {
         let dir = tempfile::tempdir().unwrap();
         let state = State::open(dir.path().join("state.db")).unwrap();
-        for index in 0..3 {
+        for index in 0..20 {
             state
                 .create_enrollment(
                     &format!("host-{index}"),
@@ -699,18 +716,17 @@ mod tests {
                 )
                 .unwrap();
         }
-        assert!(
-            state
-                .create_enrollment(
-                    "host-4",
-                    "host",
-                    &[],
-                    "192.0.2.1",
-                    &token_digest("secret-4"),
-                    &token_digest("token-4"),
-                )
-                .is_err()
-        );
+        assert!(matches!(
+            state.create_enrollment(
+                "host-21",
+                "host",
+                &[],
+                "192.0.2.1",
+                &token_digest("secret-21"),
+                &token_digest("token-21"),
+            ),
+            Err(CreateEnrollmentError::RateLimited)
+        ));
     }
 
     #[test]

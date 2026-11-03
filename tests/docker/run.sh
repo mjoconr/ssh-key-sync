@@ -185,6 +185,7 @@ curl --fail --silent \
 grep -q 'legacy XML-RPC key request' server.log
 grep -Eq 'group="?public"?' server.log
 grep -q 'source_ip=127.0.0.1' server.log
+grep -Eq 'client_name="?localhost"?' server.log
 
 ssh-key-sync-server generate-keys --output wrong-keys
 sed "s#keys/signing.pub#wrong-keys/signing.pub#" public-client.toml > bad-client.toml

@@ -3,6 +3,7 @@
 set -euo pipefail
 
 test_root="$(mktemp -d)"
+legacy_ssh_directory="$test_root/legacy-ssh"
 server_pid=""
 
 cleanup() {
@@ -164,6 +165,17 @@ sshd -T -C user=root,host=localhost,addr=127.0.0.1 \
     | grep -F '/etc/ssh/authorized_keys.d/root'
 ssh-key-sync-client --config sshd-client.toml sync --dry-run \
     | grep -q 'verified group public'
+ssh-key-sync-client --config sshd-client.toml sync
+mkdir -p "$legacy_ssh_directory"
+cp /etc/ssh/authorized_keys.d/root "$legacy_ssh_directory/authorized_keys"
+ssh-key-sync-client --config sshd-client.toml retire-legacy-authorized-keys \
+    --ssh-directory "$legacy_ssh_directory"
+test -f "$legacy_ssh_directory/authorized_keys"
+ssh-key-sync-client --config sshd-client.toml retire-legacy-authorized-keys \
+    --ssh-directory "$legacy_ssh_directory" --apply
+test ! -e "$legacy_ssh_directory/authorized_keys"
+find "$legacy_ssh_directory" -name 'authorized_keys.before-ssh-key-sync-*' |
+    grep -q .
 
 curl --fail --silent \
     --header 'Content-Type: text/xml' \

@@ -70,6 +70,15 @@ enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Quarantine legacy `.ssh/authorized_keys` files after migration.
+    RetireLegacyAuthorizedKeys {
+        /// Apply the validated file renames.
+        #[arg(long)]
+        apply: bool,
+        /// SSH directory containing the legacy authorization files.
+        #[arg(long, default_value = "/root/.ssh")]
+        ssh_directory: PathBuf,
+    },
     /// Verify a signed release checksum manifest.
     ReleaseVerify {
         /// Checksum manifest to verify.
@@ -178,6 +187,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Enroll { name } => enroll(&cli.config, &name).await?,
         Command::EnrollmentStatus { wait } => enrollment_status(&cli.config, wait).await?,
         Command::InstallCron { dry_run } => install_cron(&cli.config, dry_run)?,
+        Command::RetireLegacyAuthorizedKeys {
+            apply,
+            ssh_directory,
+        } => {
+            retire_legacy_authorized_keys(&cli.config, apply, &ssh_directory)?;
+        }
         Command::ReleaseVerify {
             manifest,
             signature,
@@ -490,6 +505,117 @@ fn authorized_keys_path_is_effective(managed: &str, effective: &str) -> bool {
     effective.split_whitespace().any(|path| path == managed)
 }
 
+fn retire_legacy_authorized_keys(
+    config_path: &Path,
+    apply: bool,
+    ssh_directory: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = ClientConfig::load(config_path)?;
+    let managed = config
+        .authorized_keys_file
+        .to_str()
+        .ok_or("managed authorized_keys path is not UTF-8")?;
+    let effective = effective_authorized_keys_file()?;
+    if !authorized_keys_path_is_effective(managed, &effective) {
+        return Err(format!(
+            "managed authorized_keys path is not effective in sshd: {managed}; effective: {effective}"
+        )
+        .into());
+    }
+    let managed_keys = validate_managed_authorized_keys(&config.authorized_keys_file)?;
+    println!("managed file is effective with {managed_keys} key(s): {managed}");
+    quarantine_legacy_authorized_keys_files(&config.authorized_keys_file, ssh_directory, apply)?;
+    if !apply {
+        println!("dry run: use --apply to quarantine the listed files");
+    }
+    Ok(())
+}
+
+fn validate_managed_authorized_keys(path: &Path) -> Result<usize, Box<dyn std::error::Error>> {
+    let content = fs::read_to_string(path)?;
+    let mut count = 0;
+    for line in content.lines().filter(|line| !line.trim().is_empty()) {
+        parse_public_key(line)?;
+        count += 1;
+    }
+    if count == 0 {
+        return Err("managed authorized_keys file is empty".into());
+    }
+    Ok(count)
+}
+
+fn quarantine_legacy_authorized_keys_files(
+    managed: &Path,
+    ssh_directory: &Path,
+    apply: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let candidates = ["authorized_keys", "authorized_keys2"]
+        .into_iter()
+        .map(|name| ssh_directory.join(name))
+        .collect::<Vec<_>>();
+    let mut existing = Vec::new();
+    for path in candidates {
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(format!(
+                "refusing non-regular authorization file: {}",
+                path.display()
+            )
+            .into());
+        }
+        if path == managed {
+            return Err("refusing to quarantine the configured managed authorization file".into());
+        }
+        existing.push(path);
+    }
+    if existing.is_empty() {
+        println!(
+            "no legacy authorization files found in {}",
+            ssh_directory.display()
+        );
+        return Ok(());
+    }
+
+    for path in existing {
+        let backup = legacy_backup_path(&path)?;
+        if apply {
+            fs::rename(&path, &backup)?;
+            println!("quarantined {} -> {}", path.display(), backup.display());
+        } else {
+            println!(
+                "would quarantine {} -> {}",
+                path.display(),
+                backup.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn legacy_backup_path(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let filename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("authorized_keys");
+    let timestamp = unix_now();
+    for suffix in 0..1_000 {
+        let backup_name = if suffix == 0 {
+            format!("{filename}.before-ssh-key-sync-{timestamp}")
+        } else {
+            format!("{filename}.before-ssh-key-sync-{timestamp}-{suffix}")
+        };
+        let candidate = path.with_file_name(backup_name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err("cannot allocate a unique legacy authorized_keys backup name".into())
+}
+
 fn configure_sshd(
     config_path: &Path,
     apply: bool,
@@ -701,6 +827,9 @@ fn atomic_write_mode(
 mod tests {
     use super::*;
 
+    const KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILM+rvN+ot98qgEN796jTiQfZfG1KaT0PtFDJ/XFSqti test";
+
     #[test]
     fn atomic_install_replaces_content() {
         let dir = tempfile::tempdir().unwrap();
@@ -768,6 +897,54 @@ mod tests {
             "/etc/ssh/authorized_keys.d/root",
             ".ssh/authorized_keys .ssh/authorized_keys2"
         ));
+    }
+
+    #[test]
+    fn quarantines_legacy_authorized_key_files_after_validation() {
+        let directory = tempfile::tempdir().unwrap();
+        let managed = directory.path().join("managed");
+        fs::write(&managed, format!("{KEY}\n")).unwrap();
+        let ssh_directory = directory.path().join("dot-ssh");
+        fs::create_dir(&ssh_directory).unwrap();
+        let primary = ssh_directory.join("authorized_keys");
+        let secondary = ssh_directory.join("authorized_keys2");
+        fs::write(&primary, format!("{KEY}\n")).unwrap();
+        fs::write(&secondary, format!("{KEY}\n")).unwrap();
+
+        quarantine_legacy_authorized_keys_files(&managed, &ssh_directory, false).unwrap();
+        assert!(primary.exists());
+        assert!(secondary.exists());
+
+        quarantine_legacy_authorized_keys_files(&managed, &ssh_directory, true).unwrap();
+        assert!(!primary.exists());
+        assert!(!secondary.exists());
+        assert_eq!(
+            fs::read_dir(&ssh_directory).unwrap().count(),
+            2,
+            "both files should remain as non-active backups"
+        );
+    }
+
+    #[test]
+    fn refuses_to_quarantine_the_managed_authorized_keys_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let ssh_directory = directory.path().join("dot-ssh");
+        fs::create_dir(&ssh_directory).unwrap();
+        let managed = ssh_directory.join("authorized_keys");
+        fs::write(&managed, format!("{KEY}\n")).unwrap();
+        assert!(quarantine_legacy_authorized_keys_files(&managed, &ssh_directory, true).is_err());
+        assert!(managed.exists());
+    }
+
+    #[test]
+    fn legacy_backup_names_do_not_overwrite_existing_files() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("authorized_keys");
+        let first = legacy_backup_path(&source).unwrap();
+        fs::write(&first, b"existing backup").unwrap();
+        let second = legacy_backup_path(&source).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(fs::read(first).unwrap(), b"existing backup");
     }
 
     #[test]

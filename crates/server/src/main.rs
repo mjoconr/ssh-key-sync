@@ -40,7 +40,7 @@ use tracing_subscriber::EnvFilter;
 mod config_edit;
 mod state;
 mod tui;
-use state::State;
+use state::{CreateEnrollmentError, State};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -980,7 +980,22 @@ async fn create_enrollment(
             &request.secret_digest,
             &request.token_digest,
         )
-        .map_err(|_| ApiError(StatusCode::CONFLICT, "unable to create enrollment"))?;
+        .map_err(|error| match error {
+            CreateEnrollmentError::RateLimited => ApiError(
+                StatusCode::TOO_MANY_REQUESTS,
+                "enrollment rate limit exceeded",
+            ),
+            CreateEnrollmentError::QueueFull => {
+                ApiError(StatusCode::SERVICE_UNAVAILABLE, "enrollment queue is full")
+            }
+            CreateEnrollmentError::Database(error) => {
+                error!(%error, "enrollment state error");
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "unable to create enrollment",
+                )
+            }
+        })?;
     let enrollment = state
         .state
         .enrollment_by_id(&request_id)

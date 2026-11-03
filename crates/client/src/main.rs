@@ -258,17 +258,23 @@ async fn enroll(config_path: &Path, name: &str) -> Result<(), Box<dyn std::error
         secret_digest: token_digest(&secret),
         token_digest: token_digest(&token),
     };
-    let created: EnrollmentCreated = reqwest::Client::new()
+    let response = reqwest::Client::new()
         .post(format!(
             "{}/v1/enrollments",
             config.server_url.trim_end_matches('/')
         ))
         .json(&body)
         .send()
-        .await?
-        .error_for_status()?
-        .json()
         .await?;
+    let status = response.status();
+    if !status.is_success() {
+        let body = response
+            .text()
+            .await
+            .unwrap_or_else(|_| "no response body".into());
+        return Err(format!("enrollment request failed ({status}): {body}").into());
+    }
+    let created: EnrollmentCreated = response.json().await?;
     let pending = PendingEnrollment {
         request_id: created.request_id.clone(),
         secret,

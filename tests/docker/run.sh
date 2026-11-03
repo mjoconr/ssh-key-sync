@@ -141,6 +141,8 @@ ssh-key-sync-server backup-verify --input "$backup_file"
 
 ssh-key-sync-client --config restricted-client.toml sync
 grep -q 'docker-test$' restricted_authorized_keys
+ssh-key-sync-server token list --config server.toml \
+    | grep -q 'client=ssh-key-sync-client/'
 
 mkdir -p /run/sshd /etc/ssh/authorized_keys.d
 ssh-key-sync-client --config sshd-client.toml configure-sshd

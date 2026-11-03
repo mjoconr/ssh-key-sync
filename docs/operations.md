@@ -515,6 +515,11 @@ Valid values are 1 to 8760 hours. Show only machines requiring attention:
 ssh-key-sync-server token list --stale-only
 ```
 
+The `client` field records the version reported by the requesting client. A
+connection failure can leave the token in `stale` or `never-connected` state
+even when its timer is scheduled; check the client service journal before
+assuming the server or network is unavailable.
+
 Revoke a token:
 
 ```sh

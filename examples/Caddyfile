@@ -35,6 +35,11 @@ keys.example.net {
 		}
 	}
 
+	handle_path /bootstrap/* {
+		root * /var/www/ssh-key-sync-bootstrap
+		file_server
+	}
+
 	handle {
 		respond 404
 	}

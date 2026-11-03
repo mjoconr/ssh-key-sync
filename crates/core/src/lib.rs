@@ -127,6 +127,9 @@ pub struct Config {
     /// Externally reachable HTTPS URL used by client bootstrap commands.
     #[serde(default)]
     pub public_url: Option<String>,
+    /// Externally reachable admin-hosted first-install bootstrap script.
+    #[serde(default)]
+    pub bootstrap_url: Option<String>,
     /// Permit binding the cleartext HTTP server beyond loopback.
     #[serde(default)]
     pub allow_non_loopback_http: bool,
@@ -185,6 +188,21 @@ impl Config {
             {
                 return Err(Error::InvalidConfig(
                     "public_url must be HTTPS without credentials".into(),
+                ));
+            }
+        }
+        if let Some(bootstrap_url) = &self.bootstrap_url {
+            let url = Url::parse(bootstrap_url)
+                .map_err(|_| Error::InvalidConfig("bootstrap_url must be a valid URL".into()))?;
+            if url.scheme() != "https"
+                || url.host().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+                || url.query().is_some()
+                || url.fragment().is_some()
+            {
+                return Err(Error::InvalidConfig(
+                    "bootstrap_url must be HTTPS without credentials, query, or fragment".into(),
                 ));
             }
         }
@@ -694,6 +712,14 @@ digest = "{}"
         config.public_url = Some("http://keys.example.net".into());
         assert!(config.validate().is_err());
         config.public_url = Some("https://user@keys.example.net".into());
+        assert!(config.validate().is_err());
+        config.public_url = Some("https://keys.example.net".into());
+        config.bootstrap_url = Some("https://keys.example.net/bootstrap/bootstrap.sh".into());
+        assert!(config.validate().is_ok());
+        config.bootstrap_url = Some("http://keys.example.net/bootstrap/bootstrap.sh".into());
+        assert!(config.validate().is_err());
+        config.bootstrap_url =
+            Some("https://keys.example.net/bootstrap/bootstrap.sh?token=secret".into());
         assert!(config.validate().is_err());
     }
 

@@ -201,6 +201,23 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                 }
                 KeyCode::Enter => {
                     if let Some(group) = groups.get(app.group_index) {
+                        let conflicts = app
+                            .state
+                            .enrollment_by_id(&request_id)?
+                            .map_or_else(Vec::new, |request| {
+                                app.state.enrollment_conflicts(&request).unwrap_or_default()
+                            });
+                        if !conflicts.is_empty() && replacement_for.is_none() {
+                            let ids = conflicts
+                                .iter()
+                                .map(|item| item.code.as_str())
+                                .collect::<Vec<_>>()
+                                .join(",");
+                            app.message =
+                                format!("active identity conflict: {ids}; use P replacement flow");
+                            app.overlay = Overlay::None;
+                            return Ok(false);
+                        }
                         let expires_at = app
                             .config
                             .groups
@@ -1363,7 +1380,7 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let details = items.get(selected).map_or_else(
         || vec![Line::from("No request selected")],
         |item| {
-            vec![
+            let mut lines = vec![
                 Line::from(format!("ID: {}", sanitize_metadata(&item.id, 128))),
                 Line::from(format!("Name: {}", sanitize_metadata(&item.name, 128))),
                 Line::from(format!(
@@ -1384,7 +1401,21 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
                     sanitize_metadata(item.group.as_deref().unwrap_or("-"), 128)
                 )),
                 Line::from(format!("Expires: {}", item.expires_at)),
-            ]
+            ];
+            let conflicts = app.state.enrollment_conflicts(item).unwrap_or_default();
+            if conflicts.is_empty() {
+                lines.push(Line::from("Identity conflicts: none"));
+            } else {
+                lines.push(Line::from(format!(
+                    "Identity conflicts: {} (use P replacement)",
+                    conflicts
+                        .iter()
+                        .map(|item| sanitize_metadata(&item.code, 16))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )));
+            }
+            lines
         },
     );
     frame.render_widget(

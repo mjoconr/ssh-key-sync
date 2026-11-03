@@ -501,6 +501,20 @@ Do not edit an active enrollment identity in place. Use replacement enrollment:
 This preserves an audit trail and keeps the old credential valid until the new
 credential has been tested.
 
+The administration view reports an identity conflict when a pending request
+matches an active enrollment by name, hostname, or local address. Normal
+approval refuses this state; use the TUI replacement flow (`P`) or the explicit
+CLI option after verifying that the new request is the intended replacement:
+
+```sh
+ssh-key-sync-server enrollment approve REQUEST_ID \
+  --group GROUP \
+  --replace-existing
+```
+
+The old enrollment remains active until it is retired. This overlap is
+intentional so a broken replacement cannot remove the working credential first.
+
 ## Legacy Clients
 
 `POST /xmlrpc/` remains only for machines that cannot run the native HTTPS

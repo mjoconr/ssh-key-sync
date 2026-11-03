@@ -238,7 +238,7 @@ install -m 0755 "$tmp/ssh-key-sync-client" /usr/local/bin/ssh-key-sync-client.ne
 mv -f /usr/local/bin/ssh-key-sync-client.new /usr/local/bin/ssh-key-sync-client
 
 echo "Installed /usr/local/bin/ssh-key-sync-client"
-echo "Existing /etc/ssh-key-sync configuration has been preserved."
+echo "Existing /etc/ssh-key-sync configuration directory has been preserved."
 
 use_systemd=0
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
@@ -274,17 +274,22 @@ fi
 
 install -d -m 0750 /etc/ssh-key-sync
 install -m 0644 "$tmp/signing.pub" /etc/ssh-key-sync/signing.pub
-{
-    echo "schema_version = 1"
-    echo "server_url = \"$server_url\""
-    echo "verifying_key_file = \"/etc/ssh-key-sync/signing.pub\""
-    echo "authorized_keys_file = \"/etc/ssh/authorized_keys.d/root\""
-    if [ -n "$enroll_name" ]; then
-        echo "token_file = \"/etc/ssh-key-sync/token\""
-    fi
-    echo "allow_empty = false"
-} > /etc/ssh-key-sync/client.toml
-chmod 0600 /etc/ssh-key-sync/client.toml
+if [ -n "$enroll_name" ] || [ ! -f /etc/ssh-key-sync/client.toml ]; then
+    {
+        echo "schema_version = 1"
+        echo "server_url = \"$server_url\""
+        echo "verifying_key_file = \"/etc/ssh-key-sync/signing.pub\""
+        echo "authorized_keys_file = \"/etc/ssh/authorized_keys.d/root\""
+        if [ -n "$enroll_name" ]; then
+            echo "token_file = \"/etc/ssh-key-sync/token\""
+        fi
+        echo "allow_empty = false"
+    } > /etc/ssh-key-sync/client.toml
+    chmod 0600 /etc/ssh-key-sync/client.toml
+    echo "Installed /etc/ssh-key-sync/client.toml"
+else
+    echo "Existing /etc/ssh-key-sync/client.toml has been preserved."
+fi
 
 if [ "$use_systemd" -eq 1 ] && { [ "$enable_timer" -eq 1 ] || [ -n "$enroll_name" ]; }; then
     download "$base/ssh-key-sync-client.service" "$tmp/ssh-key-sync-client.service"

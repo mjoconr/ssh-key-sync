@@ -64,6 +64,18 @@ reproducible package-based bootstrap is future work; perform these steps once:
 8. Enable backup and auto-update timers only after the manual health checks
    succeed.
 
+For first installations without reverse SSH access to the admin server, host
+the reviewed bootstrap assets under the Caddy `/bootstrap/` route and set:
+
+```toml
+bootstrap_url = "https://keys.example.net/bootstrap/bootstrap.sh"
+```
+
+The bundle contains only the public release key, installer, and architecture-
+specific verifier binaries. The TUI then generates copyable first-install
+commands using that URL. Without `bootstrap_url`, the TUI warns that a fresh
+installation still requires a manually supplied release verifier.
+
 Use the following permission model:
 
 ```text

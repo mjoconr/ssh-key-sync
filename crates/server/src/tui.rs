@@ -696,6 +696,19 @@ fn handle_paste(app: &mut App, text: &str) {
 
 impl App {
     fn public_install_command(&self, auto_update: bool) -> String {
+        if let Some(bootstrap_url) = &self.config.bootstrap_url {
+            return format!(
+                "curl -fsSL {} | sudo sh -s -- --server {} --signing-key-sha256 {} --apply-ssh --enable-timer{}",
+                bootstrap_url,
+                self.public_url,
+                self.signing_fingerprint,
+                if auto_update {
+                    " --enable-auto-update"
+                } else {
+                    ""
+                }
+            );
+        }
         format!(
             "curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh | sudo sh -s -- --server {} --signing-key-sha256 {} --apply-ssh --enable-timer{}",
             self.public_url,
@@ -709,6 +722,20 @@ impl App {
     }
 
     fn private_install_command(&self, hostname: &str, auto_update: bool) -> String {
+        if let Some(bootstrap_url) = &self.config.bootstrap_url {
+            return format!(
+                "curl -fsSL {} | sudo sh -s -- --server {} --signing-key-sha256 {} --apply-ssh --enroll {}{}",
+                bootstrap_url,
+                self.public_url,
+                self.signing_fingerprint,
+                hostname,
+                if auto_update {
+                    " --enable-auto-update"
+                } else {
+                    ""
+                }
+            );
+        }
         format!(
             "curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/install.sh | sudo sh -s -- --server {} --signing-key-sha256 {} --apply-ssh --enroll {}{}",
             self.public_url,
@@ -1174,6 +1201,12 @@ fn draw_host_guide(
         Line::from(app.private_install_command(hostname, auto_update)),
         Line::from(""),
     ];
+    if app.config.bootstrap_url.is_none() {
+        lines.push(Line::from(
+            "No bootstrap_url configured: fresh installations require manual release-verifier setup.",
+        ));
+        lines.push(Line::from(""));
+    }
     if let Some(old) = replacing {
         lines.extend([
             Line::from(format!("Replacement flow for {old}:")),

@@ -2,6 +2,8 @@ schema_version = 1
 listen = "127.0.0.1:18080"
 signing_key_file = "../.local/signing.key"
 public_url = "https://keys.example.net"
+# Optional admin-hosted first-install bootstrap script.
+# bootstrap_url = "https://keys.example.net/bootstrap/bootstrap.sh"
 default_group = "public"
 require_forwarded_client_ip = false
 

@@ -76,6 +76,16 @@ specific verifier binaries. The TUI then generates copyable first-install
 commands using that URL. Without `bootstrap_url`, the TUI warns that a fresh
 installation still requires a manually supplied release verifier.
 
+Set the starting auto-update choice for generated install commands with:
+
+```toml
+default_auto_update = true
+```
+
+The `U` toggle in the `I` and replacement command screens still overrides this
+per-message, and the selected value is remembered for the rest of the TUI
+session.
+
 Use the following permission model:
 
 ```text

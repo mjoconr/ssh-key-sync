@@ -117,6 +117,7 @@ struct App {
     overlay: Overlay,
     message: String,
     public_url: String,
+    auto_update: bool,
     signing_fingerprint: String,
     replacement_for: Option<String>,
     pending_count: usize,
@@ -130,6 +131,7 @@ pub(crate) fn run(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         .public_url
         .clone()
         .unwrap_or_else(|| "https://keys.example.net".into());
+    let auto_update = config.default_auto_update;
     let signing_fingerprint = signing_key_fingerprint(&config.signing_key_file)?;
     let pending_count = state
         .list_enrollments()?
@@ -154,6 +156,7 @@ pub(crate) fn run(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             format!("{pending_count} pending enrollment request(s)")
         },
         public_url,
+        auto_update,
         signing_fingerprint,
         replacement_for: None,
         pending_count,
@@ -315,7 +318,7 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                 app.overlay = Overlay::HostGuide {
                     hostname: value,
                     replacement_for,
-                    auto_update: false,
+                    auto_update: app.auto_update,
                 };
             }
             KeyCode::Char(c) if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ':') => {
@@ -334,10 +337,11 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
         } => match code {
             KeyCode::Esc | KeyCode::Char('i' | 'I') => app.overlay = Overlay::None,
             KeyCode::Char('u' | 'U') => {
+                app.auto_update = !auto_update;
                 app.overlay = Overlay::HostGuide {
                     hostname,
                     replacement_for,
-                    auto_update: !auto_update,
+                    auto_update: app.auto_update,
                 };
             }
             KeyCode::Char('c' | 'C') => {

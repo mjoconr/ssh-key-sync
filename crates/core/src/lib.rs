@@ -130,6 +130,9 @@ pub struct Config {
     /// Externally reachable admin-hosted first-install bootstrap script.
     #[serde(default)]
     pub bootstrap_url: Option<String>,
+    /// Initial TUI preference for generated client auto-update commands.
+    #[serde(default)]
+    pub default_auto_update: bool,
     /// Permit binding the cleartext HTTP server beyond loopback.
     #[serde(default)]
     pub allow_non_loopback_http: bool,

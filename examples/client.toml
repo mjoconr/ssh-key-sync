@@ -4,5 +4,9 @@ verifying_key_file = "/etc/ssh-key-sync/signing.pub"
 authorized_keys_file = "/etc/ssh/authorized_keys.d/root"
 allow_empty = false
 
+# Sync fails unless sshd reports authorized_keys_file as effective.
+# Set false only when distributing keys for another SSH implementation.
+# require_effective_sshd = false
+
 # Set this only when using a restricted group token.
 # token_file = "/etc/ssh-key-sync/token"

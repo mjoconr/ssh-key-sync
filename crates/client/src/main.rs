@@ -91,10 +91,16 @@ struct ClientConfig {
     server_url: String,
     verifying_key_file: PathBuf,
     authorized_keys_file: PathBuf,
+    #[serde(default = "default_true")]
+    require_effective_sshd: bool,
     #[serde(default)]
     token_file: Option<PathBuf>,
     #[serde(default)]
     allow_empty: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -351,6 +357,20 @@ async fn enrollment_status(
 
 async fn sync(config_path: &Path, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     let config = ClientConfig::load(config_path)?;
+    if config.require_effective_sshd {
+        let managed = config
+            .authorized_keys_file
+            .to_str()
+            .ok_or("managed authorized_keys path is not UTF-8")?;
+        let effective = effective_authorized_keys_file()?;
+        if !authorized_keys_path_is_effective(managed, &effective) {
+            return Err(format!(
+                "managed authorized_keys path is not effective in sshd: {managed}; effective: {effective}; run: ssh-key-sync-client --config {} configure-sshd --apply",
+                config_path.display()
+            )
+            .into());
+        }
+    }
     let verifying_key = load_verifying_key(&config.verifying_key_file)?;
     let nonce = new_nonce();
     let endpoint = format!(
@@ -461,6 +481,10 @@ fn effective_authorized_keys_file() -> Result<String, Box<dyn std::error::Error>
     Ok(line.trim_start_matches("authorizedkeysfile ").to_owned())
 }
 
+fn authorized_keys_path_is_effective(managed: &str, effective: &str) -> bool {
+    effective.split_whitespace().any(|path| path == managed)
+}
+
 fn configure_sshd(
     config_path: &Path,
     apply: bool,
@@ -481,7 +505,7 @@ fn configure_sshd(
         files.push(managed.to_owned());
     }
     let desired = format!("AuthorizedKeysFile {}\n", files.join(" "));
-    if current.split_whitespace().any(|file| file == managed) {
+    if authorized_keys_path_is_effective(managed, &current) {
         println!("managed file is already effective: {managed}");
         return Ok(());
     }
@@ -508,7 +532,7 @@ fn configure_sshd(
         return Err("sshd rejected the new configuration; previous configuration restored".into());
     }
     let effective = effective_authorized_keys_file()?;
-    if !effective.split_whitespace().any(|file| file == managed) {
+    if !authorized_keys_path_is_effective(managed, &effective) {
         restore_drop_in(drop_in, &backup, existing.as_deref())?;
         println!("drop-in is not supported; updating /etc/ssh/sshd_config");
         configure_main_sshd(&desired, managed, no_reload)?;
@@ -557,7 +581,7 @@ fn configure_main_sshd(
         return Err("sshd rejected the managed configuration; original restored".into());
     }
     let effective = effective_authorized_keys_file()?;
-    if !effective.split_whitespace().any(|file| file == managed) {
+    if !authorized_keys_path_is_effective(managed, &effective) {
         atomic_write(path, original.as_bytes())?;
         return Err("managed path was not effective; original restored".into());
     }
@@ -727,6 +751,18 @@ mod tests {
         assert!(validate_server_url("http://127.0.0.1@example.com").is_err());
         assert!(validate_server_url("https://user@keys.example.net").is_err());
         assert!(validate_server_url("https://keys.example.net?token=secret").is_err());
+    }
+
+    #[test]
+    fn detects_whether_the_managed_path_is_effective() {
+        assert!(authorized_keys_path_is_effective(
+            "/etc/ssh/authorized_keys.d/root",
+            ".ssh/authorized_keys /etc/ssh/authorized_keys.d/root"
+        ));
+        assert!(!authorized_keys_path_is_effective(
+            "/etc/ssh/authorized_keys.d/root",
+            ".ssh/authorized_keys .ssh/authorized_keys2"
+        ));
     }
 
     #[test]

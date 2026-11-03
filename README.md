@@ -141,6 +141,11 @@ ssh-key-sync-client --config /etc/ssh-key-sync/client.toml sync --dry-run
 ssh-key-sync-client --config /etc/ssh-key-sync/client.toml sync
 ```
 
+Before fetching keys, `sync` verifies that the configured managed file is
+present in the effective `sshd` `AuthorizedKeysFile` list. If it is missing,
+the command fails without changing keys and recommends `configure-sshd --apply`.
+Set `require_effective_sshd = false` only for non-sshd consumers.
+
 Preview and apply `sshd` changes:
 
 ```sh

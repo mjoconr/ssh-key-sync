@@ -75,6 +75,7 @@ server_url = "http://127.0.0.1:18080"
 verifying_key_file = "$test_root/keys/signing.pub"
 authorized_keys_file = "$test_root/public_authorized_keys"
 allow_empty = false
+require_effective_sshd = false
 EOF
 
 cat > restricted-client.toml <<EOF
@@ -84,6 +85,7 @@ verifying_key_file = "$test_root/keys/signing.pub"
 authorized_keys_file = "$test_root/restricted_authorized_keys"
 token_file = "$test_root/token"
 allow_empty = false
+require_effective_sshd = false
 EOF
 
 cat > sshd-client.toml <<EOF
@@ -107,6 +109,15 @@ done
 curl --fail --silent http://127.0.0.1:18080/v1/health | grep -qx 'ok'
 curl --silent --dump-header - --output /dev/null \
     http://127.0.0.1:18080/v1/health | grep -qi '^cache-control: no-store'
+
+mkdir -p /run/sshd /etc/ssh/authorized_keys.d
+if ssh-key-sync-client --config sshd-client.toml sync --dry-run \
+    >sshd-preflight.out 2>sshd-preflight.err
+then
+    echo "sync accepted an ineffective sshd configuration" >&2
+    exit 1
+fi
+grep -q 'managed authorized_keys path is not effective in sshd' sshd-preflight.err
 
 head -c 20000 /dev/zero | tr '\0' ' ' > oversized-enrollment.json
 status="$(curl --silent --output /dev/null --write-out '%{http_code}' \
@@ -144,13 +155,14 @@ grep -q 'docker-test$' restricted_authorized_keys
 ssh-key-sync-server token list --config server.toml \
     | grep -q 'client=ssh-key-sync-client/'
 
-mkdir -p /run/sshd /etc/ssh/authorized_keys.d
 ssh-key-sync-client --config sshd-client.toml configure-sshd
 test ! -e /etc/ssh/sshd_config.d/20-ssh-key-sync.conf
 ssh-key-sync-client --config sshd-client.toml configure-sshd --apply --no-reload
 sshd -T -C user=root,host=localhost,addr=127.0.0.1 \
     | grep '^authorizedkeysfile ' \
     | grep -F '/etc/ssh/authorized_keys.d/root'
+ssh-key-sync-client --config sshd-client.toml sync --dry-run \
+    | grep -q 'verified group public'
 
 curl --fail --silent \
     --header 'Content-Type: text/xml' \

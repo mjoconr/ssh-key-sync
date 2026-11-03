@@ -117,6 +117,8 @@ struct EnrollmentCreated {
     request_id: String,
     code: String,
     expires_at: u64,
+    #[serde(default)]
+    identity_conflict: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -281,6 +283,11 @@ async fn enroll(config_path: &Path, name: &str) -> Result<(), Box<dyn std::error
     println!("request: {}", created.request_id);
     println!("code:    {}", created.code);
     println!("expires: {}", created.expires_at);
+    if created.identity_conflict {
+        println!(
+            "warning: this identity conflicts with an active enrollment; verify you are enrolled from the intended machine"
+        );
+    }
     println!("Waiting for administrator approval.");
     Ok(())
 }

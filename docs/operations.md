@@ -393,6 +393,10 @@ curl -fsSL \
   sudo sh -s -- --enable-auto-update
 ```
 
+The client update unit avoids kernel-protection sandbox options that some
+container managers cannot apply. It retains `NoNewPrivileges`, a private
+temporary filesystem, protected home, and restricted address families.
+
 The server updater validates the candidate configuration, restarts the
 service, and restores the previous binary if the health check fails. Updates
 do not modify the database, signing key, or either machine's client settings.

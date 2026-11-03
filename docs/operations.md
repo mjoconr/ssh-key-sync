@@ -153,6 +153,12 @@ systemctl list-timers ssh-key-sync-client.timer --no-pager
 On a cron-only host, verify `crontab -l` contains the managed
 `ssh-key-sync-client` synchronization entry.
 
+The client first checks the effective `sshd` configuration. A sync fails
+without changing keys when the configured managed file is absent from
+`AuthorizedKeysFile`. This prevents a healthy-looking timer from repeatedly
+updating a file that sshd does not read. Use `configure-sshd --apply` to
+preserve existing authorization files and add the managed path.
+
 Open a new SSH session before closing recovery access.
 
 ## Private-Group Enrollment

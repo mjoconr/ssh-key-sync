@@ -11,7 +11,7 @@ journalctl \
     --no-pager \
     -o cat 2>/dev/null |
     sed -nE \
-        's/.*legacy XML-RPC key request group="?([^" ]+)"? source_ip=([^ ]+) key_count=([0-9]+).*/\1\t\2\t\3 keys/p' |
+        's/.*legacy XML-RPC key request group="?([^" ]+)"? source_ip=([^ ]+) client_name=([^ ]+) key_count=([0-9]+).*/\1\t\2\t\3\t\4 keys/p' |
     sort |
     uniq -c |
     sort -nr || true

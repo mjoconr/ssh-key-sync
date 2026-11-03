@@ -593,9 +593,9 @@ machines behind the same NAT address. It is therefore not a replacement for
 machine tokens.
 
 Successful requests are recorded in the server journal with the selected group,
-observed source address and key count. Caddy access logs use a filter that
-removes `Authorization`, `Cookie` and inbound `X-Real-IP` headers. Review legacy
-activity with:
+observed source address, client-supplied `platform.node()` value and key count.
+Caddy access logs use a filter that removes `Authorization`, `Cookie` and
+inbound `X-Real-IP` headers. Review legacy activity with:
 
 ```sh
 sudo scripts/legacy-activity.sh '30 days ago'
@@ -605,6 +605,11 @@ sudo jq -r '
   | @tsv
 ' /var/log/caddy/access.log
 ```
+
+The client name is supplied by the legacy client and is not authenticated. Use
+it to identify migration candidates, not as an authorization decision. Several
+`172.29.0.0/16` machines can share the `203.33.246.238` VPN egress, so the
+source address alone cannot distinguish them.
 
 Choose an observation window before disabling `/xmlrpc/`. A zero successful
 request count is necessary but not sufficient: confirm the inventory and allow

@@ -1145,8 +1145,9 @@ async fn xmlrpc(
     headers: HeaderMap,
     body: String,
 ) -> Response {
-    let valid_method = roxmltree::Document::parse(&body)
-        .ok()
+    let document = roxmltree::Document::parse(&body).ok();
+    let valid_method = document
+        .as_ref()
         .and_then(|document| {
             document
                 .descendants()
@@ -1158,12 +1159,20 @@ async fn xmlrpc(
     if !valid_method {
         return xml_fault(404, "Unknown method");
     }
+    let requested_name = document
+        .as_ref()
+        .and_then(xmlrpc_client_name)
+        .map_or_else(|| "unknown".into(), |name| sanitize_metadata(&name, 255));
     let config = state.config.load();
     let Ok(source_ip) = client_ip(&headers, peer.ip(), config.require_forwarded_client_ip) else {
         return xml_fault(400, "Missing or invalid client address");
     };
     let Some(group) = config.group_for_ip(source_ip) else {
-        info!(%source_ip, "legacy XML-RPC request without an enabled group");
+        info!(
+            %source_ip,
+            client_name = %requested_name,
+            "legacy XML-RPC request without an enabled group"
+        );
         return xml_fault(403, "No legacy key group");
     };
     let keys = match config.keys_for_group(group) {
@@ -1176,6 +1185,7 @@ async fn xmlrpc(
     info!(
         group,
         %source_ip,
+        client_name = %requested_name,
         key_count = keys.len(),
         "legacy XML-RPC key request"
     );
@@ -1195,6 +1205,15 @@ async fn xmlrpc(
         ),
     )
         .into_response()
+}
+
+fn xmlrpc_client_name(document: &roxmltree::Document<'_>) -> Option<String> {
+    document
+        .descendants()
+        .find(|node| node.has_tag_name("param"))
+        .and_then(|param| param.descendants().find(|node| node.has_tag_name("string")))
+        .and_then(|string| string.text())
+        .map(str::to_owned)
 }
 
 fn xml_fault(code: u16, message: &str) -> Response {
@@ -1312,6 +1331,18 @@ mod tests {
     fn metadata_controls_are_replaced() {
         assert_eq!(sanitize_metadata("safe\x1b[2Jname", 64), "safe?[2Jname");
         assert_eq!(sanitize_metadata("\x00", 64), "?");
+    }
+
+    #[test]
+    fn legacy_xmlrpc_client_name_is_extracted() {
+        let document = roxmltree::Document::parse(
+            r#"<?xml version="1.0"?><methodCall><methodName>ssh.getKeys</methodName><params><param><value><string>web1.example.net</string></value></param></params></methodCall>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            xmlrpc_client_name(&document).as_deref(),
+            Some("web1.example.net")
+        );
     }
 
     #[test]

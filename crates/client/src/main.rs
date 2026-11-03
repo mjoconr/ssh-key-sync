@@ -18,6 +18,8 @@ use ssh_key_sync_core::{
 };
 use url::{Host, Url};
 
+const CLIENT_USER_AGENT: &str = concat!("ssh-key-sync-client/", env!("CARGO_PKG_VERSION"));
+
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
@@ -263,6 +265,7 @@ async fn enroll(config_path: &Path, name: &str) -> Result<(), Box<dyn std::error
             "{}/v1/enrollments",
             config.server_url.trim_end_matches('/')
         ))
+        .header(reqwest::header::USER_AGENT, CLIENT_USER_AGENT)
         .json(&body)
         .send()
         .await?;
@@ -305,7 +308,9 @@ async fn enrollment_status(
     let config = ClientConfig::load(config_path)?;
     let pending_path = config_path.with_file_name("pending-enrollment.json");
     let pending: PendingEnrollment = serde_json::from_str(&fs::read_to_string(&pending_path)?)?;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .user_agent(CLIENT_USER_AGENT)
+        .build()?;
     loop {
         let state: EnrollmentState = client
             .get(format!(
@@ -358,6 +363,7 @@ async fn sync(config_path: &Path, dry_run: bool) -> Result<(), Box<dyn std::erro
         }
     );
     let client = reqwest::Client::builder()
+        .user_agent(CLIENT_USER_AGENT)
         .timeout(Duration::from_secs(20))
         .connect_timeout(Duration::from_secs(10))
         .https_only(config.server_url.starts_with("https://"))
@@ -721,5 +727,13 @@ mod tests {
         assert!(validate_server_url("http://127.0.0.1@example.com").is_err());
         assert!(validate_server_url("https://user@keys.example.net").is_err());
         assert!(validate_server_url("https://keys.example.net?token=secret").is_err());
+    }
+
+    #[test]
+    fn user_agent_identifies_the_client_version() {
+        assert_eq!(
+            CLIENT_USER_AGENT,
+            format!("ssh-key-sync-client/{}", env!("CARGO_PKG_VERSION"))
+        );
     }
 }

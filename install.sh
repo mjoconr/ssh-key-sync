@@ -89,6 +89,10 @@ case "$(uname -m)" in
     *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 
+# The systemd unit uses this path in ReadWritePaths, so it must exist before
+# the service starts. A missing directory would otherwise fail before exec.
+install -d -m 0755 /etc/ssh/authorized_keys.d
+
 if [ -f /etc/ssh-key-sync/client-auto-update ]; then
     enable_auto_update=1
 fi

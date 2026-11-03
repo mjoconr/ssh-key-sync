@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-client"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "clap",
  "fs2",
@@ -2661,7 +2661,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-core"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -2679,7 +2679,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-key-sync-server"
-version = "0.6.9"
+version = "0.6.10"
 dependencies = [
  "arc-swap",
  "axum",

@@ -30,6 +30,8 @@ pub const CONFIG_SCHEMA_VERSION: u32 = 1;
 pub const PROTOCOL_SCHEMA_VERSION: u32 = 1;
 /// Default interval used by the managed client timer.
 pub const DEFAULT_SYNC_INTERVAL_HOURS: u64 = 2;
+/// Default age after which a machine token is reported as stale.
+pub const DEFAULT_STALE_AFTER_HOURS: u64 = 48;
 const RELEASE_SIGNATURE_PREFIX: &str = "ssh-key-sync-release-v1:";
 const RELEASE_SIGNATURE_CONTEXT: &[u8] = b"ssh-key-sync-release-manifest-v1\0";
 
@@ -133,6 +135,9 @@ pub struct Config {
     /// Initial TUI preference for generated client auto-update commands.
     #[serde(default)]
     pub default_auto_update: bool,
+    /// Hours without a successful key request before a machine is stale.
+    #[serde(default = "default_stale_after_hours")]
+    pub stale_after_hours: u64,
     /// Permit binding the cleartext HTTP server beyond loopback.
     #[serde(default)]
     pub allow_non_loopback_http: bool,
@@ -171,6 +176,11 @@ impl Config {
     pub fn validate(&self) -> Result<(), Error> {
         if self.schema_version != CONFIG_SCHEMA_VERSION {
             return Err(Error::InvalidConfig("unsupported schema_version".into()));
+        }
+        if !(1..=8760).contains(&self.stale_after_hours) {
+            return Err(Error::InvalidConfig(
+                "stale_after_hours must be between 1 and 8760".into(),
+            ));
         }
         let listen = self
             .listen
@@ -314,6 +324,10 @@ impl Config {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_stale_after_hours() -> u64 {
+    DEFAULT_STALE_AFTER_HOURS
 }
 
 /// One validated key and its fingerprint.
@@ -648,6 +662,20 @@ digest = "{}"
         config.groups.get_mut("private").unwrap().token_ttl_days = Some(0);
         assert!(config.validate().is_err());
         config.groups.get_mut("private").unwrap().token_ttl_days = Some(3651);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn stale_check_threshold_defaults_and_is_bounded() {
+        let mut config = config();
+        assert_eq!(config.stale_after_hours, DEFAULT_STALE_AFTER_HOURS);
+        config.stale_after_hours = 1;
+        assert!(config.validate().is_ok());
+        config.stale_after_hours = 8760;
+        assert!(config.validate().is_ok());
+        config.stale_after_hours = 0;
+        assert!(config.validate().is_err());
+        config.stale_after_hours = 8761;
         assert!(config.validate().is_err());
     }
 

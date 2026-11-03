@@ -1071,25 +1071,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
             Constraint::Length(3),
         ])
         .split(frame.area());
-    let title = match app.tab {
-        Tab::Enrollments => "Enrollments",
-        Tab::Tokens => "Machine Tokens",
-        Tab::Groups => "Groups",
-        Tab::Keys => "Public Keys",
-    };
-    frame.render_widget(
-        Paragraph::new(format!(
-            " SSH Key Sync | {title} | pending={} | [Tab]section [I]nstall [F5]refresh [Q]uit ",
-            app.pending_count
-        ))
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(Block::default().borders(Borders::ALL)),
-        areas[0],
-    );
+    draw_header(frame, app, areas[0]);
     match app.tab {
         Tab::Enrollments => draw_enrollments(frame, app, areas[1]),
         Tab::Tokens => draw_tokens(frame, app, areas[1]),
@@ -1161,6 +1143,38 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         Overlay::Audit { title, lines } => draw_audit(frame, title, lines),
         Overlay::None => {}
     }
+}
+
+fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let title = match app.tab {
+        Tab::Enrollments => "Enrollments",
+        Tab::Tokens => "Machine Tokens",
+        Tab::Groups => "Groups",
+        Tab::Keys => "Public Keys",
+    };
+    let now = unix_now();
+    let stale_tokens = app.state.list_tokens().map_or(0, |items| {
+        items
+            .iter()
+            .filter(|item| {
+                item.check_in(now, app.config.stale_after_hours)
+                    .needs_attention()
+            })
+            .count()
+    });
+    frame.render_widget(
+        Paragraph::new(format!(
+            " SSH Key Sync | {title} | pending={} stale={} | [Tab]section [I]nstall [F5]refresh [Q]uit ",
+            app.pending_count, stale_tokens
+        ))
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(Block::default().borders(Borders::ALL)),
+        area,
+    );
 }
 
 fn draw_host_input(frame: &mut ratatui::Frame<'_>, hostname: &str, replacing: Option<&str>) {
@@ -1475,20 +1489,16 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
 fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let items = app.state.list_tokens().unwrap_or_default();
+    let now = unix_now();
+    let stale_after_hours = app.config.stale_after_hours;
     let rows = items
         .iter()
         .map(|item| {
             ListItem::new(format!(
-                "{:<24} {:<14} {:<8}",
+                "{:<24} {:<14} {:<15}",
                 sanitize_metadata(&item.label, 255),
                 sanitize_metadata(&item.group, 128),
-                if item.revoked_at.is_some() {
-                    "revoked"
-                } else if item.expires_at.is_some_and(|expiry| expiry <= unix_now()) {
-                    "expired"
-                } else {
-                    "active"
-                }
+                item.check_in(now, stale_after_hours).label()
             ))
         })
         .collect::<Vec<_>>();
@@ -1511,25 +1521,23 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let details = items.get(selected).map_or_else(
         || vec![Line::from("No token selected")],
         |item| {
+            let check_in = item.check_in(now, stale_after_hours);
+            let last_check_in = item.last_check_in_at();
             vec![
                 Line::from(format!("ID: {}", sanitize_metadata(&item.id, 128))),
                 Line::from(format!("Label: {}", sanitize_metadata(&item.label, 255))),
                 Line::from(format!("Group: {}", sanitize_metadata(&item.group, 128))),
+                Line::from(format!("Check-in: {}", check_in.label())),
+                Line::from(format!(
+                    "Last check-in: {last_check_in} ({} ago)",
+                    format_age(now.saturating_sub(last_check_in))
+                )),
+                Line::from(format!("Stale after: {stale_after_hours}h")),
                 Line::from(format!("Created: {}", item.created_at)),
                 Line::from(format!(
                     "Expires: {}",
                     item.expires_at
                         .map_or_else(|| "-".into(), |value| value.to_string())
-                )),
-                Line::from(format!(
-                    "Status: {}",
-                    if item.revoked_at.is_some() {
-                        "revoked"
-                    } else if item.expires_at.is_some_and(|expiry| expiry <= unix_now()) {
-                        "expired"
-                    } else {
-                        "active"
-                    }
                 )),
                 Line::from(format!(
                     "Revoked: {}",
@@ -1556,6 +1564,18 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Paragraph::new(details).block(Block::default().title(" Details ").borders(Borders::ALL)),
         columns[1],
     );
+}
+
+fn format_age(seconds: u64) -> String {
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3_600 {
+        format!("{}m", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{}h", seconds / 3_600)
+    } else {
+        format!("{}d", seconds / 86_400)
+    }
 }
 
 fn draw_groups(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {

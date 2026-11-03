@@ -211,6 +211,9 @@ enum EnrollmentCommand {
 enum TokenCommand {
     /// List issued machine tokens.
     List {
+        /// Only show tokens that are stale or have never connected.
+        #[arg(long)]
+        stale_only: bool,
         #[arg(long, default_value = "/etc/ssh-key-sync/server.toml")]
         config: PathBuf,
     },
@@ -564,9 +567,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
         Command::Token { command } => match command {
-            TokenCommand::List { config } => {
+            TokenCommand::List { stale_only, config } => {
                 let config = Config::load(config)?;
+                let now = unix_now();
                 for token in open_state(&config)?.list_tokens()? {
+                    let check_in = token.check_in(now, config.stale_after_hours);
+                    if stale_only && !check_in.needs_attention() {
+                        continue;
+                    }
                     let id = sanitize_metadata(&token.id, 128);
                     let group = sanitize_metadata(&token.group, 128);
                     let label = sanitize_metadata(&token.label, 255);
@@ -574,19 +582,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         sanitize_metadata(token.last_source_ip.as_deref().unwrap_or("-"), 64);
                     let client =
                         sanitize_metadata(token.last_client_version.as_deref().unwrap_or("-"), 128);
-                    let status = if token.revoked_at.is_some() {
-                        "revoked"
-                    } else if token.expires_at.is_some_and(|expiry| expiry <= unix_now()) {
-                        "expired"
-                    } else {
-                        "active"
-                    };
                     println!(
-                        "{} {} {} {} expires={} last_used={} source={} client={}",
+                        "{} {} {} check_in={} age={}s expires={} last_used={} source={} client={}",
                         id,
                         group,
                         label,
-                        status,
+                        check_in.label(),
+                        now.saturating_sub(token.last_check_in_at()),
                         token
                             .expires_at
                             .map_or_else(|| "-".into(), |value| value.to_string()),
@@ -1326,6 +1328,21 @@ mod tests {
         assert!(
             Cli::try_parse_from(["ssh-key-sync-server", "group", "set-legacy", "oeg"]).is_err()
         );
+    }
+
+    #[test]
+    fn token_list_accepts_stale_only_filter() {
+        let cli =
+            Cli::try_parse_from(["ssh-key-sync-server", "token", "list", "--stale-only"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Token {
+                command: TokenCommand::List {
+                    stale_only: true,
+                    ..
+                }
+            }
+        ));
     }
 
     #[test]

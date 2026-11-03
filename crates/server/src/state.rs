@@ -61,6 +61,63 @@ pub(crate) struct TokenRecord {
     pub last_client_version: Option<String>,
 }
 
+/// Operator-facing check-in state for a machine token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TokenCheckIn {
+    Revoked,
+    Expired,
+    NeverConnected,
+    Stale,
+    New,
+    Connected,
+}
+
+impl TokenCheckIn {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Revoked => "revoked",
+            Self::Expired => "expired",
+            Self::NeverConnected => "never-connected",
+            Self::Stale => "stale",
+            Self::New => "new",
+            Self::Connected => "connected",
+        }
+    }
+
+    pub(crate) const fn needs_attention(self) -> bool {
+        matches!(self, Self::NeverConnected | Self::Stale)
+    }
+}
+
+impl TokenRecord {
+    /// Classify the token's last successful key request.
+    pub(crate) fn check_in(&self, now: u64, stale_after_hours: u64) -> TokenCheckIn {
+        if self.revoked_at.is_some() {
+            return TokenCheckIn::Revoked;
+        }
+        if self.expires_at.is_some_and(|expiry| expiry <= now) {
+            return TokenCheckIn::Expired;
+        }
+
+        let stale_after = stale_after_hours.saturating_mul(3_600);
+        match self.last_used_at {
+            None if now.saturating_sub(self.created_at) >= stale_after => {
+                TokenCheckIn::NeverConnected
+            }
+            None => TokenCheckIn::New,
+            Some(last_used) if now.saturating_sub(last_used) >= stale_after => TokenCheckIn::Stale,
+            Some(_) => TokenCheckIn::Connected,
+        }
+    }
+
+    pub(crate) const fn last_check_in_at(&self) -> u64 {
+        match self.last_used_at {
+            Some(last_used) => last_used,
+            None => self.created_at,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct AuditRecord {
     pub action: String,
@@ -549,6 +606,55 @@ fn ensure_column(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    fn token_record(created_at: u64, last_used_at: Option<u64>) -> TokenRecord {
+        TokenRecord {
+            id: "machine-test".into(),
+            label: "test".into(),
+            group: "restricted".into(),
+            created_at,
+            expires_at: None,
+            revoked_at: None,
+            last_used_at,
+            last_source_ip: None,
+            last_client_version: None,
+        }
+    }
+
+    #[test]
+    fn token_check_in_reports_new_connected_and_stale_machines() {
+        let now = 1_000_000;
+        let stale_after_hours = 48;
+        assert_eq!(
+            token_record(now - 60, None).check_in(now, stale_after_hours),
+            TokenCheckIn::New
+        );
+        assert_eq!(
+            token_record(now - 60, Some(now - 60)).check_in(now, stale_after_hours),
+            TokenCheckIn::Connected
+        );
+        assert_eq!(
+            token_record(now - 172_800, None).check_in(now, stale_after_hours),
+            TokenCheckIn::NeverConnected
+        );
+        assert_eq!(
+            token_record(now - 172_800, Some(now - 172_800)).check_in(now, stale_after_hours),
+            TokenCheckIn::Stale
+        );
+    }
+
+    #[test]
+    fn token_check_in_keeps_lifecycle_states_authoritative() {
+        let now = 1_000_000;
+        let mut expired = token_record(now - 172_800, None);
+        expired.expires_at = Some(now - 1);
+        assert_eq!(expired.check_in(now, 48), TokenCheckIn::Expired);
+
+        let mut revoked = token_record(now - 172_800, None);
+        revoked.expires_at = Some(now - 1);
+        revoked.revoked_at = Some(now - 2);
+        assert_eq!(revoked.check_in(now, 48), TokenCheckIn::Revoked);
+    }
 
     #[test]
     fn enrollment_approval_activates_the_client_token() {

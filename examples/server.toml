@@ -3,6 +3,8 @@ listen = "127.0.0.1:18080"
 signing_key_file = "../.local/signing.key"
 public_url = "https://keys.example.net"
 default_auto_update = true
+# Report a machine token as stale after this many hours without a key request.
+stale_after_hours = 48
 # Optional admin-hosted first-install bootstrap script.
 # bootstrap_url = "https://keys.example.net/bootstrap/bootstrap.sh"
 default_group = "public"

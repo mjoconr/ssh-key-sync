@@ -143,8 +143,12 @@ test "$(stat -c '%a' pending-enrollment.json)" = "600"
 ssh-key-sync-client --config restricted-client.toml enrollment-status | grep -q 'status: pending'
 ssh-key-sync-server enrollment list --config server.toml | grep -q "$request_id"
 ssh-key-sync-server enrollment approve "$request_id" --group restricted --config server.toml
-ssh-key-sync-client --config restricted-client.toml enrollment-status | grep -q 'approved for group restricted'
+approval_output="$(ssh-key-sync-client --config restricted-client.toml enrollment-status)"
+printf '%s\n' "$approval_output"
+printf '%s\n' "$approval_output" | grep -q 'approved for group restricted'
 test "$(stat -c '%a' token)" = "600"
+test ! -e pending-enrollment.json
+crontab -l | grep -q 'ssh-key-sync-client --config'
 
 ssh-key-sync-server backup --config server.toml --output-directory "$test_root/backups" --retain 2
 backup_file="$(find "$test_root/backups" -maxdepth 1 -name 'state-*.db' -print -quit)"

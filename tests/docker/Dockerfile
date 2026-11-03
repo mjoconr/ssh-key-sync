@@ -9,7 +9,7 @@ RUN cargo build --locked --release \
 FROM debian:bookworm-slim
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates curl openssh-server \
+    && apt-get install --yes --no-install-recommends ca-certificates cron curl openssh-server \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/target/release/ssh-key-sync-client /usr/local/bin/

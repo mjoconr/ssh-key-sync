@@ -54,7 +54,7 @@ detached Ed25519 signature. Clients verify:
 - Envelope and payload schema versions.
 - Response signature.
 - Request nonce.
-- Issue and expiry times.
+- Issue and expiry times, allowing up to 15 minutes of client clock skew.
 - SSH key syntax and fingerprints.
 
 The public endpoint is unauthenticated and returns only the explicitly

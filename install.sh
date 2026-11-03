@@ -10,6 +10,7 @@ apply_ssh="${SSH_KEY_SYNC_APPLY_SSH:-0}"
 enable_timer="${SSH_KEY_SYNC_ENABLE_TIMER:-0}"
 enable_auto_update="${SSH_KEY_SYNC_ENABLE_AUTO_UPDATE:-0}"
 enroll_name="${SSH_KEY_SYNC_HOSTNAME:-}"
+wait_for_enrollment="${SSH_KEY_SYNC_WAIT_FOR_ENROLLMENT:-1}"
 release_public_key="${SSH_KEY_SYNC_RELEASE_PUBLIC_KEY:-}"
 release_verifier="${SSH_KEY_SYNC_RELEASE_VERIFIER:-}"
 release_base="${SSH_KEY_SYNC_RELEASE_BASE:-}"
@@ -23,6 +24,7 @@ usage() {
     echo "  --enable-timer"
     echo "  --enable-auto-update"
     echo "  --enroll NAME"
+    echo "  --no-wait"
     echo "  --release-key PATH"
     echo "  --release-verifier PATH"
     echo "Set GH_TOKEN when installing from a private repository."
@@ -61,6 +63,10 @@ while [ "$#" -gt 0 ]; do
             [ "$#" -ge 2 ] || { usage >&2; exit 2; }
             enroll_name="$2"
             shift 2
+            ;;
+        --no-wait)
+            wait_for_enrollment=0
+            shift
             ;;
         --release-key)
             [ "$#" -ge 2 ] || { usage >&2; exit 2; }
@@ -313,14 +319,15 @@ if [ -n "$enroll_name" ]; then
     /usr/local/bin/ssh-key-sync-client \
         --config /etc/ssh-key-sync/client.toml \
         enroll --name "$enroll_name"
-    echo "Wait for administrator approval, then run:"
-    echo "  ssh-key-sync-client --config /etc/ssh-key-sync/client.toml enrollment-status --wait"
-    if [ "$use_systemd" -eq 1 ]; then
-        echo "Then enable the timer:"
-        echo "  systemctl enable --now ssh-key-sync-client.timer"
+    if [ "$wait_for_enrollment" -eq 1 ]; then
+        echo "Waiting for administrator approval; installation will finish automatically."
+        /usr/local/bin/ssh-key-sync-client \
+            --config /etc/ssh-key-sync/client.toml \
+            enrollment-status --wait
+        echo "Enrollment complete: keys synchronized and schedule enabled."
     else
-        echo "Systemd is unavailable; after approval install cron with:"
-        echo "  ssh-key-sync-client --config /etc/ssh-key-sync/client.toml install-cron"
+        echo "Setup is pending. After approval run:"
+        echo "  ssh-key-sync-client --config /etc/ssh-key-sync/client.toml enrollment-status --wait"
     fi
     exit 0
 fi
@@ -333,6 +340,10 @@ if [ "$apply_ssh" -eq 1 ]; then
         --config /etc/ssh-key-sync/client.toml \
         configure-sshd --apply
 fi
+
+/usr/local/bin/ssh-key-sync-client \
+    --config /etc/ssh-key-sync/client.toml \
+    sync
 
 if [ "$enable_timer" -eq 1 ]; then
     if [ "$use_systemd" -eq 1 ]; then

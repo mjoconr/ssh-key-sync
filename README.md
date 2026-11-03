@@ -63,7 +63,10 @@ curl -fsSL https://github.com/mjoconr/ssh-key-sync/releases/latest/download/inst
 
 `--apply-ssh` uses the validated configuration and rollback behavior described
 above. Add `--enroll HOSTNAME` instead of `--enable-timer` for a private group.
-Add `--enable-auto-update` to enable the daily client upgrade timer.
+The enrollment command waits for approval, then installs the token, verifies a
+real synchronized key response, and enables the schedule automatically. Use
+`--no-wait` for a staged approval. Add `--enable-auto-update` to enable the
+daily client upgrade timer.
 
 ### Enable Client Auto-Update Later
 

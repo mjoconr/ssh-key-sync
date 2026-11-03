@@ -139,7 +139,8 @@ The command:
 6. Writes `/etc/ssh-key-sync/client.toml`.
 7. Fetches and verifies the public key set without changing files.
 8. Applies and validates the two-file `sshd` configuration.
-9. Installs and enables the systemd timer, or prints the cron-only follow-up.
+9. Performs and verifies the real key synchronization.
+10. Installs and enables the systemd timer, or prints the cron-only follow-up.
 
 Verify:
 
@@ -177,7 +178,8 @@ curl -fsSL \
     --enroll hostname
 ```
 
-The client prints a request ID and short code. Do not enable the timer yet.
+The client prints a request ID and short code, then waits for approval. Keep
+that command running. Use `--no-wait` when approval must be staged separately.
 
 Review requests on the server:
 
@@ -210,16 +212,16 @@ Revoke and hide an old approved machine enrollment atomically:
 ssh-key-sync-server enrollment retire REQUEST_ID
 ```
 
-On the client:
+After approval, the waiting installer automatically installs the token,
+performs a real signed synchronization, and enables the systemd timer or cron
+entry:
 
 ```sh
 ssh-key-sync-client enrollment-status --wait
-ssh-key-sync-client sync --dry-run
-ssh-key-sync-client sync
-systemctl enable --now ssh-key-sync-client.timer
 ```
 
-Verify a new SSH connection remains available.
+If the original installer was interrupted, the same command resumes and
+completes setup. Verify a new SSH connection remains available.
 
 For a cron-only host, install the synchronization entry after approval:
 
@@ -664,6 +666,11 @@ Before migrating the proxy to the Rust compatibility endpoint:
 ## Failure And Rollback
 
 If key retrieval fails, the client leaves the managed file unchanged.
+
+Signed responses are valid for five minutes. The client allows up to 15 minutes
+of clock difference and prints a warning when its clock differs from the server
+by more than 60 seconds or when `timedatectl` reports unsynchronized time.
+Repair NTP or `systemd-timesyncd` when that warning appears.
 
 If `configure-sshd --apply` fails validation or reload, it restores the prior
 configuration automatically. Manual backups:

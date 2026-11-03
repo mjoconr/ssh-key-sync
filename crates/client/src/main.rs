@@ -19,6 +19,7 @@ use ssh_key_sync_core::{
 use url::{Host, Url};
 
 const CLIENT_USER_AGENT: &str = concat!("ssh-key-sync-client/", env!("CARGO_PKG_VERSION"));
+const CLOCK_WARNING_SECONDS: u64 = 60;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -256,6 +257,26 @@ fn install_cron(config_path: &Path, dry_run: bool) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
+fn enable_sync_schedule(config_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if Path::new("/run/systemd/system").is_dir()
+        && ProcessCommand::new("systemctl")
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success())
+    {
+        let status = ProcessCommand::new("systemctl")
+            .args(["enable", "--now", "ssh-key-sync-client.timer"])
+            .status()?;
+        if !status.success() {
+            return Err("failed to enable ssh-key-sync-client.timer".into());
+        }
+        println!("enabled ssh-key-sync-client.timer");
+    } else {
+        install_cron(config_path, false)?;
+    }
+    Ok(())
+}
+
 async fn enroll(config_path: &Path, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let config = ClientConfig::load(config_path)?;
     let token_file = config
@@ -352,11 +373,16 @@ async fn enrollment_status(
                     format!("{}\n", pending.token).as_bytes(),
                     0o600,
                 )?;
+                let group = state.group.unwrap_or_default();
                 println!(
                     "approved for group {}; token installed at {}",
-                    state.group.unwrap_or_default(),
+                    group,
                     pending.token_file.display()
                 );
+                sync(config_path, false).await?;
+                enable_sync_schedule(config_path)?;
+                fs::remove_file(&pending_path)?;
+                println!("enrollment complete: synchronization verified and schedule enabled");
                 return Ok(());
             }
             "denied" => return Err("enrollment was denied".into()),
@@ -409,7 +435,17 @@ async fn sync(config_path: &Path, dry_run: bool) -> Result<(), Box<dyn std::erro
         request = request.bearer_auth(token.trim());
     }
     let envelope: SignedEnvelope = request.send().await?.error_for_status()?.json().await?;
-    let payload = verify_envelope(&envelope, &verifying_key, &nonce, unix_now())?;
+    let verified_at = unix_now();
+    let payload = verify_envelope(&envelope, &verifying_key, &nonce, verified_at)?;
+    let clock_difference = payload.issued_at.abs_diff(verified_at);
+    if clock_difference > CLOCK_WARNING_SECONDS {
+        eprintln!(
+            "warning: client clock differs from the server by {clock_difference} seconds; configure NTP or systemd-timesyncd"
+        );
+    }
+    if let Some(warning) = time_synchronization_warning() {
+        eprintln!("warning: {warning}");
+    }
     if payload.keys.is_empty() && !config.allow_empty {
         return Err("server returned an empty key set; refusing to modify authorized_keys".into());
     }
@@ -503,6 +539,18 @@ fn effective_authorized_keys_file() -> Result<String, Box<dyn std::error::Error>
 
 fn authorized_keys_path_is_effective(managed: &str, effective: &str) -> bool {
     effective.split_whitespace().any(|path| path == managed)
+}
+
+fn time_synchronization_warning() -> Option<&'static str> {
+    let output = ProcessCommand::new("timedatectl")
+        .args(["show", "--property=NTPSynchronized", "--value"])
+        .output()
+        .ok()?;
+    if output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "no" {
+        Some("system time is not synchronized; configure NTP or systemd-timesyncd")
+    } else {
+        None
+    }
 }
 
 fn retire_legacy_authorized_keys(

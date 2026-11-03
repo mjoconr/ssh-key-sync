@@ -156,8 +156,10 @@ On a cron-only host, verify `crontab -l` contains the managed
 The client first checks the effective `sshd` configuration. A sync fails
 without changing keys when the configured managed file is absent from
 `AuthorizedKeysFile`. This prevents a healthy-looking timer from repeatedly
-updating a file that sshd does not read. Use `configure-sshd --apply` to
-preserve existing authorization files and add the managed path.
+updating a file that sshd does not read. It creates the standard `/run/sshd`
+runtime directory when a minimal or container system has not done so. Use
+`configure-sshd --apply` to preserve existing authorization files and add the
+managed path.
 
 Open a new SSH session before closing recovery access.
 

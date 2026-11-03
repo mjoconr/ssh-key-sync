@@ -110,7 +110,7 @@ curl --fail --silent http://127.0.0.1:18080/v1/health | grep -qx 'ok'
 curl --silent --dump-header - --output /dev/null \
     http://127.0.0.1:18080/v1/health | grep -qi '^cache-control: no-store'
 
-mkdir -p /run/sshd /etc/ssh/authorized_keys.d
+mkdir -p /etc/ssh/authorized_keys.d
 if ssh-key-sync-client --config sshd-client.toml sync --dry-run \
     >sshd-preflight.out 2>sshd-preflight.err
 then
@@ -118,6 +118,7 @@ then
     exit 1
 fi
 grep -q 'managed authorized_keys path is not effective in sshd' sshd-preflight.err
+test -d /run/sshd
 
 head -c 20000 /dev/zero | tr '\0' ' ' > oversized-enrollment.json
 status="$(curl --silent --output /dev/null --write-out '%{http_code}' \

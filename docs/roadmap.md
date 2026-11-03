@@ -39,11 +39,14 @@ and restore tests are implemented. Remaining work:
 
 Optional per-group token lifetimes are implemented, and expiry is enforced by
 the private key endpoint. The CLI and TUI show expiry and use the replacement
-enrollment flow for rotation. Remaining work:
+enrollment flow for rotation. Token check-in state is available as `connected`,
+`new`, `stale`, or `never-connected`, with a configurable threshold and a
+`--stale-only` CLI filter. Remaining work:
 
 - per-token overrides in addition to group defaults;
-- pre-expiry warnings and scheduled stale-token reports;
-- notification delivery through the monitoring interface.
+- pre-expiry warnings and scheduled check-in reports;
+- state-change notification delivery with deduplication through the monitoring
+  interface.
 
 ### Dependency And Advisory Maintenance
 

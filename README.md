@@ -17,7 +17,7 @@ configuration.
 - systemd timers and cron-only client support.
 - Optional signature-verified client and server auto-update timers.
 - Online SQLite state backups with retention.
-- Enrollment approval, token lifecycle, audit history, and a terminal admin UI.
+- Enrollment approval, token check-in status, audit history, and a terminal admin UI.
 - Native x86-64 and ARM64 release builds for client and server.
 - Loopback-only cleartext binding, bounded requests, strict enrollment fields,
   and explicit opt-in for unauthenticated XML-RPC groups.
@@ -128,6 +128,11 @@ backup, or conditional reboot timers.
 
 See [server.toml](examples/server.toml), [architecture.md](docs/architecture.md),
 [Caddyfile](examples/Caddyfile), and [roadmap.md](docs/roadmap.md).
+
+Machine tokens record their last successful key request. The TUI and
+`ssh-key-sync-server token list` distinguish `connected`, `new`, `stale`,
+`never-connected`, `expired`, and `revoked` machines. Set
+`stale_after_hours` in `server.toml` or use the default of 48 hours.
 
 ## Client
 

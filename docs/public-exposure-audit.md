@@ -86,7 +86,8 @@ retain the previous behaviour, where approved machine tokens remain active until
 revoked. A stolen token can read its group's public keys and reveal inventory
 metadata, but it cannot make a native client install attacker-controlled keys
 because the server response still needs the signing key. Pre-expiry warnings and
-stale-token reporting are still planned work.
+scheduled check-in notifications are still planned work. The CLI and TUI
+currently report token check-in state without contacting clients.
 
 ### Release Bootstrap
 

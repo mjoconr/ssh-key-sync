@@ -500,6 +500,21 @@ List tokens:
 ssh-key-sync-server token list
 ```
 
+The token list records the last successful key request and reports each live
+machine as `connected`, `new`, `stale`, or `never-connected`. Expired and
+revoked tokens keep those lifecycle states. The check-in threshold defaults to
+48 hours and can be changed in `server.toml`:
+
+```toml
+stale_after_hours = 48
+```
+
+Valid values are 1 to 8760 hours. Show only machines requiring attention:
+
+```sh
+ssh-key-sync-server token list --stale-only
+```
+
 Revoke a token:
 
 ```sh
@@ -638,6 +653,7 @@ ls -lh /var/lib/ssh-key-sync/backups
 At minimum, monitor:
 
 - HTTPS health from outside the server;
+- machine-token check-in state, including `token list --stale-only`;
 - failed `ssh-key-sync-client.service` runs;
 - failed server update, backup, and reboot-check units;
 - pending enrollment count and requests nearing expiry;
@@ -647,5 +663,8 @@ At minimum, monitor:
 - GitHub Dependabot, CodeQL, secret-scanning, and security-advisory alerts.
 
 The service does not currently publish metrics or send alerts itself. Use the
-existing systemd journal and HTTP health endpoint with an external monitor.
+existing systemd journal, token check-in state, and HTTP health endpoint with
+an external monitor. For hosts that can only run cron, keep routine client
+output local and monitor missing check-ins centrally instead of sending one
+email for every failed Internet attempt.
 

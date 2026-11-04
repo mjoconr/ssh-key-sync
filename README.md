@@ -24,7 +24,7 @@ configuration.
 
 ## Status
 
-Version `0.6.17` is the current release. It provides signed key responses,
+Version `0.6.18` is the current release. It provides signed key responses,
 enrollment and machine-token workflows, validated key/group/CIDR edits, a
 terminal administration interface, systemd and cron deployment, checksum-verified
 and cryptographically signed optional auto-updates, SQLite backups, and

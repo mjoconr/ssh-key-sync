@@ -421,9 +421,10 @@ impl State {
             .into_iter()
             .filter(|existing| {
                 candidate.name.eq_ignore_ascii_case(&existing.name)
-                    || candidate.hostname.eq_ignore_ascii_case(&existing.hostname)
-                    || !candidate_addresses
-                        .is_disjoint(&enrollment_addresses(&existing.local_addresses))
+                    || (candidate.source_ip == existing.source_ip
+                        && (candidate.hostname.eq_ignore_ascii_case(&existing.hostname)
+                            || !candidate_addresses
+                                .is_disjoint(&enrollment_addresses(&existing.local_addresses))))
             })
             .collect())
     }
@@ -803,6 +804,36 @@ mod tests {
         assert!(state.enrollment_conflicts(&separate).unwrap().is_empty());
 
         assert!(state.retire_enrollment(&old_id).unwrap());
+        assert!(state.enrollment_conflicts(&candidate).unwrap().is_empty());
+    }
+
+    #[test]
+    fn shared_hostnames_and_private_overlay_addresses_at_different_sites_do_not_conflict() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = State::open(dir.path().join("state.db")).unwrap();
+        let (old_id, _, _) = state
+            .create_enrollment(
+                "pve.pineview.net",
+                "pve",
+                &["vmbr0:192.0.2.10".into(), "zt0:172.24.42.1".into()],
+                "198.51.100.10",
+                &token_digest("old-secret"),
+                &token_digest("old-token"),
+            )
+            .unwrap();
+        assert!(state.approve(&old_id, "home", None).unwrap());
+
+        let (new_id, _, _) = state
+            .create_enrollment(
+                "pve.wooltech.com.au",
+                "pve",
+                &["vmbr0:192.0.2.10".into(), "zt0:172.24.42.1".into()],
+                "198.51.100.11",
+                &token_digest("new-secret"),
+                &token_digest("new-token"),
+            )
+            .unwrap();
+        let candidate = state.enrollment_by_id(&new_id).unwrap().unwrap();
         assert!(state.enrollment_conflicts(&candidate).unwrap().is_empty());
     }
 

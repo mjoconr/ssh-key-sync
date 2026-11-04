@@ -301,11 +301,17 @@ ssh-key-sync-server tui
 
 The TUI refreshes pending enrollment state every two seconds, shows the pending
 count, and emits a terminal bell when a new request arrives. Use `F5` to reload
-the server configuration after an external edit.
+the server configuration after an external edit. In the enrollment view the
+current search, filter, sort, grouping, and visible/total counts remain on
+screen while navigating.
 
 | Key | Action |
 | --- | --- |
 | `Tab` | Move between enrollments, tokens, groups, and public keys |
+| `/` | Search enrollment code, name, hostname, source, addresses, status, or group |
+| `F` | Cycle enrollment filters: all, pending, approved, denied, or conflicted |
+| `S` | Cycle enrollment sorting by newest, oldest, name, status, or group |
+| `B` | Group enrollments by status, group, or no grouping |
 | `A` | Approve an enrollment, add a group, or add a public key |
 | `D` | Deny a pending enrollment |
 | `R` | Revoke a selected token |

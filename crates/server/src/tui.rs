@@ -1,4 +1,6 @@
 use std::{
+    cmp::Ordering,
+    collections::BTreeSet,
     io,
     path::PathBuf,
     time::{Duration, Instant},
@@ -52,9 +54,151 @@ struct KeyRow {
     groups: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EnrollmentFilter {
+    All,
+    Pending,
+    Approved,
+    Denied,
+    Conflicted,
+}
+
+impl EnrollmentFilter {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Pending => "pending",
+            Self::Approved => "approved",
+            Self::Denied => "denied",
+            Self::Conflicted => "conflicted",
+        }
+    }
+
+    const fn next(self) -> Self {
+        match self {
+            Self::All => Self::Pending,
+            Self::Pending => Self::Approved,
+            Self::Approved => Self::Denied,
+            Self::Denied => Self::Conflicted,
+            Self::Conflicted => Self::All,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EnrollmentSort {
+    Newest,
+    Oldest,
+    Name,
+    Status,
+    Group,
+}
+
+impl EnrollmentSort {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Newest => "newest",
+            Self::Oldest => "oldest",
+            Self::Name => "name",
+            Self::Status => "status",
+            Self::Group => "group",
+        }
+    }
+
+    const fn next(self) -> Self {
+        match self {
+            Self::Newest => Self::Oldest,
+            Self::Oldest => Self::Name,
+            Self::Name => Self::Status,
+            Self::Status => Self::Group,
+            Self::Group => Self::Newest,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EnrollmentGrouping {
+    None,
+    Group,
+    Status,
+}
+
+impl EnrollmentGrouping {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Group => "group",
+            Self::Status => "status",
+        }
+    }
+
+    const fn next(self) -> Self {
+        match self {
+            Self::None => Self::Group,
+            Self::Group => Self::Status,
+            Self::Status => Self::None,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct EnrollmentControls {
+    search: String,
+    filter: EnrollmentFilter,
+    sort: EnrollmentSort,
+    grouping: EnrollmentGrouping,
+}
+
+impl Default for EnrollmentControls {
+    fn default() -> Self {
+        Self {
+            search: String::new(),
+            filter: EnrollmentFilter::All,
+            sort: EnrollmentSort::Newest,
+            grouping: EnrollmentGrouping::None,
+        }
+    }
+}
+
+#[derive(Clone)]
+enum EnrollmentRow {
+    Header(String),
+    Item(Enrollment),
+}
+
+struct EnrollmentView {
+    rows: Vec<EnrollmentRow>,
+    count: usize,
+    total: usize,
+}
+
+impl EnrollmentView {
+    fn item(&self, index: usize) -> Option<&Enrollment> {
+        self.rows
+            .iter()
+            .filter_map(|row| match row {
+                EnrollmentRow::Header(_) => None,
+                EnrollmentRow::Item(item) => Some(item),
+            })
+            .nth(index)
+    }
+
+    fn row_for_item(&self, index: usize) -> Option<usize> {
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| matches!(row, EnrollmentRow::Item(_)))
+            .nth(index)
+            .map(|(position, _)| position)
+    }
+}
+
 #[derive(Clone)]
 enum Overlay {
     None,
+    EnrollmentSearch {
+        value: String,
+    },
     Approve {
         request_id: String,
         replacement_for: Option<String>,
@@ -111,6 +255,7 @@ struct App {
     state: State,
     tab: Tab,
     enrollment_index: usize,
+    enrollment_controls: EnrollmentControls,
     token_index: usize,
     group_index: usize,
     key_index: usize,
@@ -146,6 +291,7 @@ pub(crate) fn run(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         state,
         tab: Tab::Enrollments,
         enrollment_index: 0,
+        enrollment_controls: EnrollmentControls::default(),
         token_index: 0,
         group_index: 0,
         key_index: 0,
@@ -191,6 +337,28 @@ fn run_app(mut app: App) -> Result<(), Box<dyn std::error::Error>> {
 fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::Error>> {
     let overlay = app.overlay.clone();
     match overlay {
+        Overlay::EnrollmentSearch { mut value } => match code {
+            KeyCode::Esc => app.overlay = Overlay::None,
+            KeyCode::Backspace => {
+                value.pop();
+                app.overlay = Overlay::EnrollmentSearch { value };
+            }
+            KeyCode::Enter => {
+                value.trim().clone_into(&mut app.enrollment_controls.search);
+                app.enrollment_index = 0;
+                app.message = if app.enrollment_controls.search.is_empty() {
+                    "enrollment search cleared".into()
+                } else {
+                    format!("enrollment search: {}", app.enrollment_controls.search)
+                };
+                app.overlay = Overlay::None;
+            }
+            KeyCode::Char(c) if !c.is_control() => {
+                value.push(c);
+                app.overlay = Overlay::EnrollmentSearch { value };
+            }
+            _ => {}
+        },
         Overlay::Approve {
             request_id,
             replacement_for,
@@ -632,6 +800,33 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                 }
                 KeyCode::Up => app.previous(),
                 KeyCode::Down => app.next(),
+                KeyCode::Char('/') if matches!(app.tab, Tab::Enrollments) => {
+                    app.overlay = Overlay::EnrollmentSearch {
+                        value: app.enrollment_controls.search.clone(),
+                    };
+                }
+                KeyCode::Char('f' | 'F') if matches!(app.tab, Tab::Enrollments) => {
+                    app.enrollment_controls.filter = app.enrollment_controls.filter.next();
+                    app.enrollment_index = 0;
+                    app.message = format!(
+                        "enrollment filter: {}",
+                        app.enrollment_controls.filter.label()
+                    );
+                }
+                KeyCode::Char('s' | 'S') if matches!(app.tab, Tab::Enrollments) => {
+                    app.enrollment_controls.sort = app.enrollment_controls.sort.next();
+                    app.enrollment_index = 0;
+                    app.message =
+                        format!("enrollment sort: {}", app.enrollment_controls.sort.label());
+                }
+                KeyCode::Char('b' | 'B') if matches!(app.tab, Tab::Enrollments) => {
+                    app.enrollment_controls.grouping = app.enrollment_controls.grouping.next();
+                    app.enrollment_index = 0;
+                    app.message = format!(
+                        "enrollment grouping: {}",
+                        app.enrollment_controls.grouping.label()
+                    );
+                }
                 KeyCode::Char('a' | 'A') => app.primary_action(),
                 KeyCode::Char('d' | 'D') => app.deny_selected(),
                 KeyCode::Char('r' | 'R') => app.revoke_selected(),
@@ -651,6 +846,10 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
 fn handle_paste(app: &mut App, text: &str) {
     let overlay = app.overlay.clone();
     match overlay {
+        Overlay::EnrollmentSearch { mut value } => {
+            value.extend(text.chars().filter(|c| !c.is_control()));
+            app.overlay = Overlay::EnrollmentSearch { value };
+        }
         Overlay::HostInput {
             mut value,
             replacement_for,
@@ -796,10 +995,24 @@ impl App {
         Ok(())
     }
 
+    fn enrollment_view(&self) -> EnrollmentView {
+        let items = self.state.list_enrollments().unwrap_or_default();
+        let conflicted = items
+            .iter()
+            .filter(|item| {
+                self.state
+                    .enrollment_conflicts(item)
+                    .is_ok_and(|conflicts| !conflicts.is_empty())
+            })
+            .map(|item| item.id.clone())
+            .collect();
+        build_enrollment_view(items, &self.enrollment_controls, &conflicted)
+    }
+
     fn next(&mut self) {
         match self.tab {
             Tab::Enrollments => {
-                let len = self.state.list_enrollments().map_or(0, |items| items.len());
+                let len = self.enrollment_view().count;
                 self.enrollment_index = (self.enrollment_index + 1).min(len.saturating_sub(1));
             }
             Tab::Tokens => {
@@ -826,11 +1039,7 @@ impl App {
     }
 
     fn selected_enrollment(&self) -> Option<Enrollment> {
-        self.state
-            .list_enrollments()
-            .ok()?
-            .into_iter()
-            .nth(self.enrollment_index)
+        self.enrollment_view().item(self.enrollment_index).cloned()
     }
 
     fn selected_token(&self) -> Option<TokenRecord> {
@@ -1062,6 +1271,109 @@ impl App {
     }
 }
 
+fn build_enrollment_view(
+    mut items: Vec<Enrollment>,
+    controls: &EnrollmentControls,
+    conflicted: &BTreeSet<String>,
+) -> EnrollmentView {
+    let total = items.len();
+    let search = controls.search.trim().to_lowercase();
+    items.retain(|item| {
+        let matches_filter = match controls.filter {
+            EnrollmentFilter::All => true,
+            EnrollmentFilter::Pending => item.status == "pending",
+            EnrollmentFilter::Approved => item.status == "approved",
+            EnrollmentFilter::Denied => item.status == "denied",
+            EnrollmentFilter::Conflicted => conflicted.contains(&item.id),
+        };
+        matches_filter && (search.is_empty() || enrollment_matches_search(item, &search))
+    });
+
+    if controls.grouping == EnrollmentGrouping::None {
+        items.sort_by(|left, right| compare_enrollments(left, right, controls.sort));
+    } else {
+        items.sort_by(|left, right| {
+            enrollment_group_key(left, controls.grouping)
+                .cmp(&enrollment_group_key(right, controls.grouping))
+                .then_with(|| compare_enrollments(left, right, controls.sort))
+        });
+    }
+
+    let count = items.len();
+    let mut rows = Vec::with_capacity(count.saturating_add(8));
+    let mut current_group = None;
+    for item in items {
+        if controls.grouping != EnrollmentGrouping::None {
+            let group = enrollment_group_key(&item, controls.grouping);
+            if current_group.as_deref() != Some(group.as_str()) {
+                rows.push(EnrollmentRow::Header(group.clone()));
+                current_group = Some(group);
+            }
+        }
+        rows.push(EnrollmentRow::Item(item));
+    }
+
+    EnrollmentView { rows, count, total }
+}
+
+fn enrollment_matches_search(item: &Enrollment, search: &str) -> bool {
+    [
+        item.code.as_str(),
+        item.name.as_str(),
+        item.hostname.as_str(),
+        item.local_addresses.as_str(),
+        item.source_ip.as_str(),
+        item.status.as_str(),
+        item.group.as_deref().unwrap_or("-"),
+    ]
+    .iter()
+    .any(|value| value.to_lowercase().contains(search))
+}
+
+fn enrollment_group_key(item: &Enrollment, grouping: EnrollmentGrouping) -> String {
+    match grouping {
+        EnrollmentGrouping::None => String::new(),
+        EnrollmentGrouping::Group => item
+            .group
+            .as_deref()
+            .filter(|group| !group.is_empty())
+            .unwrap_or("(ungrouped)")
+            .to_lowercase(),
+        EnrollmentGrouping::Status => item.status.to_lowercase(),
+    }
+}
+
+fn compare_enrollments(left: &Enrollment, right: &Enrollment, sort: EnrollmentSort) -> Ordering {
+    let left_name = left.name.to_lowercase();
+    let right_name = right.name.to_lowercase();
+    match sort {
+        EnrollmentSort::Newest => right
+            .created_at
+            .cmp(&left.created_at)
+            .then_with(|| left_name.cmp(&right_name)),
+        EnrollmentSort::Oldest => left
+            .created_at
+            .cmp(&right.created_at)
+            .then_with(|| left_name.cmp(&right_name)),
+        EnrollmentSort::Name => left_name.cmp(&right_name),
+        EnrollmentSort::Status => enrollment_status_rank(&left.status)
+            .cmp(&enrollment_status_rank(&right.status))
+            .then_with(|| left_name.cmp(&right_name)),
+        EnrollmentSort::Group => enrollment_group_key(left, EnrollmentGrouping::Group)
+            .cmp(&enrollment_group_key(right, EnrollmentGrouping::Group))
+            .then_with(|| left_name.cmp(&right_name)),
+    }
+}
+
+fn enrollment_status_rank(status: &str) -> u8 {
+    match status {
+        "pending" => 0,
+        "approved" => 1,
+        "denied" => 2,
+        _ => 3,
+    }
+}
+
 fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
     let areas = Layout::default()
         .direction(Direction::Vertical)
@@ -1085,6 +1397,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         areas[2],
     );
     match &app.overlay {
+        Overlay::EnrollmentSearch { value } => draw_enrollment_search(frame, value),
         Overlay::Approve {
             replacement_for, ..
         } => draw_group_picker(
@@ -1143,6 +1456,23 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
         Overlay::Audit { title, lines } => draw_audit(frame, title, lines),
         Overlay::None => {}
     }
+}
+
+fn draw_enrollment_search(frame: &mut ratatui::Frame<'_>, value: &str) {
+    let area = centered(frame.area(), 72, 18);
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(format!(
+            "Search: {value}\n\nMatches code, name, hostname, source IP, local addresses,\nstatus and group.\n\n[Enter] apply  [Esc] cancel"
+        ))
+        .wrap(Wrap { trim: true })
+        .block(
+            Block::default()
+                .title(" Search Enrollments ")
+                .borders(Borders::ALL),
+        ),
+        area,
+    );
 }
 
 fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
@@ -1406,26 +1736,134 @@ fn copy_to_clipboard(value: &str) -> io::Result<()> {
     )
 }
 
-fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
-    let items = app.state.list_enrollments().unwrap_or_default();
-    let rows = items
+fn draw_enrollment_controls(
+    frame: &mut ratatui::Frame<'_>,
+    app: &App,
+    view: &EnrollmentView,
+    area: Rect,
+) {
+    let search = if app.enrollment_controls.search.is_empty() {
+        "-".to_owned()
+    } else {
+        format!(
+            "\"{}\"",
+            sanitize_metadata(&app.enrollment_controls.search, 128)
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(format!(
+                " Showing {} of {} | [/] Search: {} | [F] Filter: {}",
+                view.count,
+                view.total,
+                search,
+                app.enrollment_controls.filter.label()
+            )),
+            Line::from(format!(
+                " [S] Sort: {} | [B] Group by: {}",
+                app.enrollment_controls.sort.label(),
+                app.enrollment_controls.grouping.label()
+            )),
+        ])
+        .block(Block::default().borders(Borders::BOTTOM)),
+        area,
+    );
+}
+
+fn enrollment_list_items(view: &EnrollmentView) -> Vec<ListItem<'static>> {
+    let rows = view
+        .rows
         .iter()
-        .map(|item| {
-            ListItem::new(format!(
-                "{} {:<8} {:<20} source={}",
-                sanitize_metadata(&item.code, 16),
-                sanitize_metadata(&item.status, 16),
-                sanitize_metadata(&item.name, 128),
-                sanitize_metadata(&item.source_ip, 64)
-            ))
+        .map(|row| match row {
+            EnrollmentRow::Header(name) => ListItem::new(Line::from(format!(
+                ":: {} ::",
+                sanitize_metadata(name, 128)
+            )))
+            .style(
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            EnrollmentRow::Item(item) => {
+                let style = match item.status.as_str() {
+                    "pending" => Style::default().fg(Color::Yellow),
+                    "approved" => Style::default().fg(Color::Green),
+                    "denied" => Style::default().fg(Color::Red),
+                    _ => Style::default(),
+                };
+                ListItem::new(format!(
+                    "{} {:<8} {:<20} source={}",
+                    sanitize_metadata(&item.code, 16),
+                    sanitize_metadata(&item.status, 16),
+                    sanitize_metadata(&item.name, 128),
+                    sanitize_metadata(&item.source_ip, 64)
+                ))
+                .style(style)
+            }
         })
         .collect::<Vec<_>>();
-    let columns = split_details(area);
+    if rows.is_empty() {
+        vec![ListItem::new(
+            "No enrollments match the active search and filter",
+        )]
+    } else {
+        rows
+    }
+}
+
+fn enrollment_detail_lines(app: &App, item: &Enrollment) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::from(format!("ID: {}", sanitize_metadata(&item.id, 128))),
+        Line::from(format!("Name: {}", sanitize_metadata(&item.name, 128))),
+        Line::from(format!(
+            "Hostname: {}",
+            sanitize_metadata(&item.hostname, 255)
+        )),
+        Line::from(format!(
+            "Source: {}",
+            sanitize_metadata(&item.source_ip, 64)
+        )),
+        Line::from(format!(
+            "Interfaces: {}",
+            sanitize_metadata(&item.local_addresses, 4096)
+        )),
+        Line::from(format!("Status: {}", sanitize_metadata(&item.status, 16))),
+        Line::from(format!(
+            "Group: {}",
+            sanitize_metadata(item.group.as_deref().unwrap_or("-"), 128)
+        )),
+        Line::from(format!("Expires: {}", item.expires_at)),
+    ];
+    let conflicts = app.state.enrollment_conflicts(item).unwrap_or_default();
+    if conflicts.is_empty() {
+        lines.push(Line::from("Identity conflicts: none"));
+    } else {
+        lines.push(Line::from(format!(
+            "Identity conflicts: {} (use P replacement)",
+            conflicts
+                .iter()
+                .map(|item| sanitize_metadata(&item.code, 16))
+                .collect::<Vec<_>>()
+                .join(",")
+        )));
+    }
+    lines
+}
+
+fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
+    let view = app.enrollment_view();
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(5)])
+        .split(area);
+    draw_enrollment_controls(frame, app, &view, layout[0]);
+
+    let columns = split_details(layout[1]);
     let mut state = ListState::default();
-    let selected = app.enrollment_index.min(items.len().saturating_sub(1));
-    state.select((!items.is_empty()).then_some(selected));
+    let selected = app.enrollment_index.min(view.count.saturating_sub(1));
+    state.select(view.row_for_item(selected));
     frame.render_stateful_widget(
-        List::new(rows)
+        List::new(enrollment_list_items(&view))
             .block(
                 Block::default()
                     .title(" Requests | [A]pprove [D]eny [P]replace [X]hide/retire [V]audit ")
@@ -1440,46 +1878,9 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         columns[0],
         &mut state,
     );
-    let details = items.get(selected).map_or_else(
+    let details = view.item(selected).map_or_else(
         || vec![Line::from("No request selected")],
-        |item| {
-            let mut lines = vec![
-                Line::from(format!("ID: {}", sanitize_metadata(&item.id, 128))),
-                Line::from(format!("Name: {}", sanitize_metadata(&item.name, 128))),
-                Line::from(format!(
-                    "Hostname: {}",
-                    sanitize_metadata(&item.hostname, 255)
-                )),
-                Line::from(format!(
-                    "Source: {}",
-                    sanitize_metadata(&item.source_ip, 64)
-                )),
-                Line::from(format!(
-                    "Interfaces: {}",
-                    sanitize_metadata(&item.local_addresses, 4096)
-                )),
-                Line::from(format!("Status: {}", sanitize_metadata(&item.status, 16))),
-                Line::from(format!(
-                    "Group: {}",
-                    sanitize_metadata(item.group.as_deref().unwrap_or("-"), 128)
-                )),
-                Line::from(format!("Expires: {}", item.expires_at)),
-            ];
-            let conflicts = app.state.enrollment_conflicts(item).unwrap_or_default();
-            if conflicts.is_empty() {
-                lines.push(Line::from("Identity conflicts: none"));
-            } else {
-                lines.push(Line::from(format!(
-                    "Identity conflicts: {} (use P replacement)",
-                    conflicts
-                        .iter()
-                        .map(|item| sanitize_metadata(&item.code, 16))
-                        .collect::<Vec<_>>()
-                        .join(",")
-                )));
-            }
-            lines
-        },
+        |item| enrollment_detail_lines(app, item),
     );
     frame.render_widget(
         Paragraph::new(details).block(Block::default().title(" Details ").borders(Borders::ALL)),
@@ -1773,4 +2174,136 @@ fn centered(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(vertical[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn enrollment(
+        id: &str,
+        name: &str,
+        group: Option<&str>,
+        status: &str,
+        source_ip: &str,
+        local_addresses: &str,
+        created_at: u64,
+    ) -> Enrollment {
+        Enrollment {
+            id: id.into(),
+            code: id.to_ascii_uppercase(),
+            name: name.into(),
+            hostname: name.into(),
+            local_addresses: local_addresses.into(),
+            source_ip: source_ip.into(),
+            status: status.into(),
+            group: group.map(str::to_owned),
+            created_at,
+            expires_at: created_at + 900,
+        }
+    }
+
+    fn fixture() -> Vec<Enrollment> {
+        vec![
+            enrollment(
+                "db",
+                "db",
+                Some("oeg"),
+                "approved",
+                "203.33.246.98",
+                r#"["ens18:10.50.1.50"]"#,
+                20,
+            ),
+            enrollment(
+                "mail",
+                "mail.jazmin.net.au",
+                Some("home"),
+                "pending",
+                "103.127.123.224",
+                r#"["ens18:103.127.123.224"]"#,
+                30,
+            ),
+            enrollment(
+                "fax",
+                "fax",
+                Some("oeg"),
+                "denied",
+                "103.127.123.203",
+                r#"["ens18:103.127.123.203"]"#,
+                10,
+            ),
+        ]
+    }
+
+    #[test]
+    fn enrollment_search_matches_identity_fields_case_insensitively() {
+        let controls = EnrollmentControls {
+            search: "JAZMIN".into(),
+            ..EnrollmentControls::default()
+        };
+        let view = build_enrollment_view(fixture(), &controls, &BTreeSet::new());
+        assert_eq!(view.count, 1);
+        assert_eq!(view.item(0).map(|item| item.id.as_str()), Some("mail"));
+
+        let controls = EnrollmentControls {
+            search: "10.50.1".into(),
+            ..EnrollmentControls::default()
+        };
+        let view = build_enrollment_view(fixture(), &controls, &BTreeSet::new());
+        assert_eq!(view.item(0).map(|item| item.id.as_str()), Some("db"));
+    }
+
+    #[test]
+    fn enrollment_filter_and_conflict_search_combine() {
+        let controls = EnrollmentControls {
+            filter: EnrollmentFilter::Conflicted,
+            search: "mail".into(),
+            ..EnrollmentControls::default()
+        };
+        let conflicted = BTreeSet::from(["mail".to_owned()]);
+        let view = build_enrollment_view(fixture(), &controls, &conflicted);
+        assert_eq!(view.count, 1);
+        assert_eq!(view.item(0).map(|item| item.id.as_str()), Some("mail"));
+    }
+
+    #[test]
+    fn enrollment_grouping_adds_headers_and_skips_them_for_selection() {
+        let controls = EnrollmentControls {
+            sort: EnrollmentSort::Name,
+            grouping: EnrollmentGrouping::Group,
+            ..EnrollmentControls::default()
+        };
+        let view = build_enrollment_view(fixture(), &controls, &BTreeSet::new());
+        assert_eq!(view.count, 3);
+        assert!(matches!(
+            view.rows.first(),
+            Some(EnrollmentRow::Header(group)) if group == "home"
+        ));
+        assert_eq!(view.item(0).map(|item| item.id.as_str()), Some("mail"));
+        assert_eq!(
+            view.item(1).map(|item| item.id.as_str()),
+            Some("db"),
+            "group items use the selected sort"
+        );
+        assert_eq!(
+            view.item(2).map(|item| item.id.as_str()),
+            Some("fax"),
+            "group items use the selected sort"
+        );
+        assert_eq!(view.row_for_item(0), Some(1));
+        assert_eq!(view.row_for_item(1), Some(3));
+    }
+
+    #[test]
+    fn enrollment_status_sort_prioritizes_pending() {
+        let controls = EnrollmentControls {
+            sort: EnrollmentSort::Status,
+            ..EnrollmentControls::default()
+        };
+        let view = build_enrollment_view(fixture(), &controls, &BTreeSet::new());
+        let ids = (0..view.count)
+            .filter_map(|index| view.item(index).map(|item| item.id.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["mail", "db", "fax"]);
+    }
 }

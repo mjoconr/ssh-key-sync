@@ -997,15 +997,19 @@ impl App {
 
     fn enrollment_view(&self) -> EnrollmentView {
         let items = self.state.list_enrollments().unwrap_or_default();
-        let conflicted = items
-            .iter()
-            .filter(|item| {
-                self.state
-                    .enrollment_conflicts(item)
-                    .is_ok_and(|conflicts| !conflicts.is_empty())
-            })
-            .map(|item| item.id.clone())
-            .collect();
+        let conflicted = if self.enrollment_controls.filter == EnrollmentFilter::Conflicted {
+            items
+                .iter()
+                .filter(|item| {
+                    self.state
+                        .enrollment_conflicts(item)
+                        .is_ok_and(|conflicts| !conflicts.is_empty())
+                })
+                .map(|item| item.id.clone())
+                .collect()
+        } else {
+            BTreeSet::new()
+        };
         build_enrollment_view(items, &self.enrollment_controls, &conflicted)
     }
 

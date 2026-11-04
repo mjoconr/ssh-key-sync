@@ -185,7 +185,7 @@ git push origin "$SSH_KEY_SYNC_VERSION"
 scripts/sign-release.sh "$SSH_KEY_SYNC_VERSION"
 ```
 
-The tag workflow builds both architectures and creates a draft release.
+The tag workflow builds i686, x86-64, and ARM64 and creates a draft release.
 `sign-release.sh` verifies every draft asset, signs `SHA256SUMS` with the
 offline key, checks its own signature, uploads `SHA256SUMS.sig`, and publishes
 the release as latest.

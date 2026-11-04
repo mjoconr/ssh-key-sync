@@ -91,6 +91,7 @@ done
 
 case "$(uname -m)" in
     x86_64|amd64) target="x86_64-unknown-linux-musl" ;;
+    i386|i486|i586|i686) target="i686-unknown-linux-musl" ;;
     aarch64|arm64) target="aarch64-unknown-linux-musl" ;;
     *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
@@ -332,14 +333,14 @@ if [ -n "$enroll_name" ]; then
     exit 0
 fi
 
-/usr/local/bin/ssh-key-sync-client \
-    --config /etc/ssh-key-sync/client.toml sync --dry-run
-
 if [ "$apply_ssh" -eq 1 ]; then
     /usr/local/bin/ssh-key-sync-client \
         --config /etc/ssh-key-sync/client.toml \
         configure-sshd --apply
 fi
+
+/usr/local/bin/ssh-key-sync-client \
+    --config /etc/ssh-key-sync/client.toml sync --dry-run
 
 /usr/local/bin/ssh-key-sync-client \
     --config /etc/ssh-key-sync/client.toml \

@@ -28,7 +28,7 @@ On a client:
 - Outbound HTTPS access to the server.
 - `sha256sum` and `curl`.
 - systemd, or cron for older systems.
-- A supported 64-bit x86 or ARM64 Linux architecture.
+- A supported 32-bit x86, 64-bit x86, or ARM64 Linux architecture.
 
 ### Reverse Proxy Contract
 

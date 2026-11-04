@@ -62,7 +62,7 @@ changing configuration on clients.
 - Release checksums are signed by an offline Ed25519 key whose trust anchor is
   installed separately from the release-download origin.
 - x86-64 and ARM64 release artifacts are built natively for their target
-  architecture.
+  architecture; i686 uses a pinned cross compiler.
 - Dependency advisories, licenses, protected CI, CodeQL, secret scanning, and
   push protection are enabled.
 - Legacy XML-RPC activity records the selected group, source and key count

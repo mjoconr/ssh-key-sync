@@ -23,11 +23,13 @@ Build static release binaries for the host architecture with:
 
 ```sh
 TARGET_ARCH=x86_64 scripts/build-musl.sh
+TARGET_ARCH=i686 scripts/build-musl.sh
 TARGET_ARCH=aarch64 scripts/build-musl.sh
 ```
 
 The ARM64 build uses Docker Buildx and requires platform emulation when the
-host is not ARM64.
+host is not ARM64. The i686 build uses the pinned `cargo-zigbuild` container
+and also requires Docker.
 
 Inspect and remove generated local build data with:
 
@@ -73,11 +75,11 @@ git tag -a v0.5.0 -m "v0.5.0"
 git push origin v0.5.0
 ```
 
-The release workflow builds static x86-64 and ARM64 Linux clients and servers
-on matching native GitHub runners, generates `SHA256SUMS`, and publishes both
-installers and all archives. Every release is explicitly marked latest so
-out-of-order background jobs cannot change which version `/releases/latest/`
-resolves to.
+The release workflow builds static i686, x86-64, and ARM64 Linux clients and
+servers, generates `SHA256SUMS`, and publishes both installers and all
+archives. x86-64 and ARM64 use native GitHub runners; i686 uses the pinned
+cross compiler. Every release is explicitly marked latest so out-of-order
+background jobs cannot change which version `/releases/latest/` resolves to.
 
 Before creating a tag:
 

@@ -9,7 +9,7 @@ ordered by operational risk, not by feature appeal.
   central configuration-management channel to the server.
 - Keep legacy cron and non-systemd clients working until they have been
   inventoried and migrated.
-- Keep release artifacts usable on current x86-64 and ARM64 Linux systems while
+- Keep release artifacts usable on i686, x86-64, and ARM64 Linux systems while
   preserving compatibility with old OpenSSH clients.
 - Do not put deployment addresses, private keys, machine tokens, personal
   public keys, or production screenshots in this public repository.
@@ -145,7 +145,7 @@ A release is ready only when:
 
 - required CI, CodeQL, Dependabot, secret scanning, and private advisories are
   reviewed;
-- both native architecture builds pass;
+- all architecture builds pass;
 - Docker integration tests pass;
 - release checksums and architecture are independently checked;
 - backup/update rollback behavior is understood;

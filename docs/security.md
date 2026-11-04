@@ -39,6 +39,8 @@ changing configuration on clients.
 - Key files are written atomically with mode `0600`.
 - Existing authorization files are preserved.
 - `sshd` changes are validated and rolled back on failure.
+- Effective `AuthorizedKeysFile` detection supports both current `sshd -T -C`
+  output and legacy separate `AuthorizedKeysFile2` output.
 - Server state snapshots use SQLite's online backup API, private permissions,
   atomic rename, and bounded retention.
 - Restore verifies SQLite integrity and schema compatibility on a temporary

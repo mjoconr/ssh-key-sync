@@ -3,6 +3,7 @@
 use std::{
     fs::{self, OpenOptions},
     io::Write as _,
+    net::IpAddr,
     os::unix::fs::PermissionsExt as _,
     path::{Path, PathBuf},
     process::{Command as ProcessCommand, Stdio},
@@ -111,6 +112,10 @@ struct ClientConfig {
 
 fn default_true() -> bool {
     true
+}
+
+fn is_enrollment_address(address: IpAddr) -> bool {
+    !address.is_loopback() && !matches!(address, IpAddr::V4(address) if address.is_link_local())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -287,7 +292,7 @@ async fn enroll(config_path: &Path, name: &str) -> Result<(), Box<dyn std::error
     let token = new_token();
     let local_addresses = if_addrs::get_if_addrs()?
         .into_iter()
-        .filter(|interface| !interface.is_loopback())
+        .filter(|interface| is_enrollment_address(interface.addr.ip()))
         .take(32)
         .map(|interface| format!("{}:{}", interface.name, interface.addr.ip()))
         .collect();
@@ -933,6 +938,15 @@ mod tests {
         assert!(validate_server_url("http://127.0.0.1@example.com").is_err());
         assert!(validate_server_url("https://user@keys.example.net").is_err());
         assert!(validate_server_url("https://keys.example.net?token=secret").is_err());
+    }
+
+    #[test]
+    fn enrollment_ignores_loopback_and_ipv4_link_local_addresses() {
+        assert!(!is_enrollment_address("127.0.0.1".parse().unwrap()));
+        assert!(!is_enrollment_address("::1".parse().unwrap()));
+        assert!(!is_enrollment_address("169.254.7.113".parse().unwrap()));
+        assert!(is_enrollment_address("172.29.56.1".parse().unwrap()));
+        assert!(is_enrollment_address("2001:db8::1".parse().unwrap()));
     }
 
     #[test]

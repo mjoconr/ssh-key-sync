@@ -519,7 +519,8 @@ fn inspect_sshd() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn effective_authorized_keys_file() -> Result<String, Box<dyn std::error::Error>> {
-    let runtime_directory = Path::new("/run/sshd");
+    let runtime_directory = sshd_runtime_directory(Path::new("/run"), Path::new("/var/run"));
+    let runtime_directory = runtime_directory.as_path();
     if !runtime_directory.exists() {
         fs::create_dir(runtime_directory)?;
         fs::set_permissions(runtime_directory, fs::Permissions::from_mode(0o755))?;
@@ -543,6 +544,14 @@ fn effective_authorized_keys_file() -> Result<String, Box<dyn std::error::Error>
         }
     };
     parse_authorized_keys_file(&String::from_utf8(output.stdout)?)
+}
+
+fn sshd_runtime_directory(run: &Path, var_run: &Path) -> PathBuf {
+    if run.exists() {
+        run.join("sshd")
+    } else {
+        var_run.join("sshd")
+    }
 }
 
 fn parse_authorized_keys_file(config: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -994,6 +1003,16 @@ authorizedkeysfile2 /etc/ssh/authorized_keys.d/root
             parse_authorized_keys_file(config).unwrap(),
             ".ssh/authorized_keys /etc/ssh/authorized_keys.d/root"
         );
+    }
+
+    #[test]
+    fn uses_var_run_when_run_directory_is_absent() {
+        let directory = tempfile::tempdir().unwrap();
+        let run = directory.path().join("run");
+        let var_run = directory.path().join("var-run");
+        assert_eq!(sshd_runtime_directory(&run, &var_run), var_run.join("sshd"));
+        fs::create_dir(&run).unwrap();
+        assert_eq!(sshd_runtime_directory(&run, &var_run), run.join("sshd"));
     }
 
     #[test]

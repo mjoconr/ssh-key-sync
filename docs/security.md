@@ -41,6 +41,7 @@ changing configuration on clients.
 - `sshd` changes are validated and rolled back on failure.
 - Effective `AuthorizedKeysFile` detection supports both current `sshd -T -C`
   output and legacy separate `AuthorizedKeysFile2` output.
+- Client preflight falls back to `/var/run/sshd` on systems without `/run`.
 - Server state snapshots use SQLite's online backup API, private permissions,
   atomic rename, and bounded retention.
 - Restore verifies SQLite integrity and schema compatibility on a temporary

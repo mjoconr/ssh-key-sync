@@ -524,22 +524,44 @@ fn effective_authorized_keys_file() -> Result<String, Box<dyn std::error::Error>
         fs::create_dir(runtime_directory)?;
         fs::set_permissions(runtime_directory, fs::Permissions::from_mode(0o755))?;
     }
-    let output = ProcessCommand::new("sshd")
+    let contextual = ProcessCommand::new("sshd")
         .args(["-T", "-C", "user=root,host=localhost,addr=127.0.0.1"])
         .output()?;
-    if !output.status.success() {
-        return Err(format!(
-            "sshd -T failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .into());
-    }
-    let config = String::from_utf8(output.stdout)?;
-    let line = config
+    let output = if contextual.status.success() {
+        contextual
+    } else {
+        let fallback = ProcessCommand::new("sshd").arg("-T").output()?;
+        if fallback.status.success() {
+            fallback
+        } else {
+            return Err(format!(
+                "sshd -T failed: {}; fallback sshd -T failed: {}",
+                String::from_utf8_lossy(&contextual.stderr),
+                String::from_utf8_lossy(&fallback.stderr)
+            )
+            .into());
+        }
+    };
+    parse_authorized_keys_file(&String::from_utf8(output.stdout)?)
+}
+
+fn parse_authorized_keys_file(config: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let files = config
         .lines()
-        .find(|line| line.starts_with("authorizedkeysfile "))
-        .ok_or("sshd did not report authorizedkeysfile")?;
-    Ok(line.trim_start_matches("authorizedkeysfile ").to_owned())
+        .filter_map(|line| {
+            let (directive, value) = line.split_once(char::is_whitespace)?;
+            matches!(
+                directive.to_ascii_lowercase().as_str(),
+                "authorizedkeysfile" | "authorizedkeysfile2"
+            )
+            .then(|| value.trim())
+        })
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        return Err("sshd did not report authorizedkeysfile".into());
+    }
+    Ok(files.join(" "))
 }
 
 fn authorized_keys_path_is_effective(managed: &str, effective: &str) -> bool {
@@ -959,6 +981,19 @@ mod tests {
             "/etc/ssh/authorized_keys.d/root",
             ".ssh/authorized_keys .ssh/authorized_keys2"
         ));
+    }
+
+    #[test]
+    fn parses_legacy_primary_and_secondary_authorized_keys_files() {
+        let config = "\
+port 22
+authorizedkeysfile .ssh/authorized_keys
+authorizedkeysfile2 /etc/ssh/authorized_keys.d/root
+";
+        assert_eq!(
+            parse_authorized_keys_file(config).unwrap(),
+            ".ssh/authorized_keys /etc/ssh/authorized_keys.d/root"
+        );
     }
 
     #[test]

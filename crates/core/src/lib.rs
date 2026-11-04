@@ -32,6 +32,7 @@ pub const PROTOCOL_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_SYNC_INTERVAL_HOURS: u64 = 2;
 /// Default age after which a machine token is reported as stale.
 pub const DEFAULT_STALE_AFTER_HOURS: u64 = 48;
+const MAX_CLIENT_CLOCK_SKEW_SECONDS: u64 = 900;
 const RELEASE_SIGNATURE_PREFIX: &str = "ssh-key-sync-release-v1:";
 const RELEASE_SIGNATURE_CONTEXT: &[u8] = b"ssh-key-sync-release-manifest-v1\0";
 
@@ -472,7 +473,12 @@ pub fn verify_envelope(
     if payload.nonce != nonce {
         return Err(Error::Nonce);
     }
-    if now < payload.issued_at || now > payload.expires_at {
+    if now.saturating_add(MAX_CLIENT_CLOCK_SKEW_SECONDS) < payload.issued_at
+        || now
+            > payload
+                .expires_at
+                .saturating_add(MAX_CLIENT_CLOCK_SKEW_SECONDS)
+    {
         return Err(Error::Expired);
     }
     for record in &payload.keys {
@@ -703,6 +709,57 @@ digest = "{}"
         assert_eq!(
             verify_envelope(&envelope, &signing_key.verifying_key(), &nonce, 150).unwrap(),
             payload
+        );
+    }
+
+    #[test]
+    fn accepts_bounded_client_clock_skew() {
+        let signing_key = SigningKey::from_bytes(&[7_u8; 32]);
+        let nonce = new_nonce();
+        let payload = KeySetPayload {
+            schema: PROTOCOL_SCHEMA_VERSION,
+            nonce: nonce.clone(),
+            issued_at: 10_000,
+            expires_at: 10_300,
+            group: "public".into(),
+            keys: vec![parse_public_key(KEY).unwrap()],
+        };
+        let envelope = sign_payload(&payload, &signing_key).unwrap();
+        assert!(
+            verify_envelope(
+                &envelope,
+                &signing_key.verifying_key(),
+                &nonce,
+                10_000 - MAX_CLIENT_CLOCK_SKEW_SECONDS
+            )
+            .is_ok()
+        );
+        assert!(
+            verify_envelope(
+                &envelope,
+                &signing_key.verifying_key(),
+                &nonce,
+                10_300 + MAX_CLIENT_CLOCK_SKEW_SECONDS
+            )
+            .is_ok()
+        );
+        assert!(
+            verify_envelope(
+                &envelope,
+                &signing_key.verifying_key(),
+                &nonce,
+                9_999 - MAX_CLIENT_CLOCK_SKEW_SECONDS
+            )
+            .is_err()
+        );
+        assert!(
+            verify_envelope(
+                &envelope,
+                &signing_key.verifying_key(),
+                &nonce,
+                10_301 + MAX_CLIENT_CLOCK_SKEW_SECONDS
+            )
+            .is_err()
         );
     }
 

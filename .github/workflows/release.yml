@@ -38,6 +38,9 @@ jobs:
           - runner: ubuntu-latest
             arch: x86_64
             target: x86_64-unknown-linux-musl
+          - runner: ubuntu-latest
+            arch: i686
+            target: i686-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             arch: aarch64
             target: aarch64-unknown-linux-musl

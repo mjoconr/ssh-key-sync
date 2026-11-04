@@ -9,8 +9,8 @@ configuration.
 - Public groups and token-protected groups.
 - CIDR-based group selection for the compatibility API.
 - Ed25519-signed native responses bound to a client nonce.
-- Static Linux x86-64 and ARM64 client builds supporting old and current
-  OpenSSH installations.
+- Static Linux i686, x86-64, and ARM64 client builds supporting old and
+  current OpenSSH installations.
 - Atomic `authorized_keys` replacement with empty-response protection.
 - Separate managed and existing authorization files.
 - Safe `sshd` changes with validation, reload, and rollback.
@@ -18,17 +18,17 @@ configuration.
 - Optional signature-verified client and server auto-update timers.
 - Online SQLite state backups with retention.
 - Enrollment approval, token check-in status, audit history, and a terminal admin UI.
-- Native x86-64 and ARM64 release builds for client and server.
+- i686, x86-64, and ARM64 release builds for client and server.
 - Loopback-only cleartext binding, bounded requests, strict enrollment fields,
   and explicit opt-in for unauthenticated XML-RPC groups.
 
 ## Status
 
-Version `0.6.3` is the current release. It provides signed key responses,
+Version `0.6.17` is the current release. It provides signed key responses,
 enrollment and machine-token workflows, validated key/group/CIDR edits, a
 terminal administration interface, systemd and cron deployment, checksum-verified
 and cryptographically signed optional auto-updates, SQLite backups, and
-x86-64/ARM64 static builds.
+i686/x86-64/ARM64 static builds.
 
 There is no web interface. See [releases.md](docs/releases.md) for release trust,
 first-install bootstrap, fork signing keys, and key rotation.
@@ -47,7 +47,7 @@ verify a signed `SHA256SUMS` against
 `/etc/ssh-key-sync/release.pub`; routine updates preserve configuration under
 `/etc/ssh-key-sync`.
 
-Static builds are published for both `x86_64` and `aarch64`, including
+Static builds are published for `i686`, `x86_64`, and `aarch64`, including
 Raspberry Pi systems.
 
 Once the signed installer trust anchor is installed, configure a client with:

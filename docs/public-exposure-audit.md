@@ -1,6 +1,6 @@
 # Public Exposure Review
 
-Reviewed release: `v0.6.13`
+Reviewed release: `v0.6.14`
 
 This review covers the code and deployment shape that make SSH Key Sync safe to
 expose through a public HTTPS reverse proxy. It is not a penetration test or a

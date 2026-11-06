@@ -78,6 +78,32 @@ pub enum Visibility {
     Private,
 }
 
+/// How a legacy XML-RPC request selected its key group.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LegacyGroupMatch<'a> {
+    /// The source address matched an explicitly configured CIDR.
+    Cidr(&'a str),
+    /// No CIDR matched, so the legacy-enabled default group was used.
+    Default(&'a str),
+}
+
+impl<'a> LegacyGroupMatch<'a> {
+    /// Group selected for the request.
+    pub fn group(self) -> &'a str {
+        match self {
+            Self::Cidr(group) | Self::Default(group) => group,
+        }
+    }
+
+    /// Stable label suitable for structured operational logging.
+    pub fn selection(self) -> &'static str {
+        match self {
+            Self::Cidr(_) => "cidr",
+            Self::Default(_) => "default_fallback",
+        }
+    }
+}
+
 /// One key-selection group.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -293,8 +319,8 @@ impl Config {
         Ok(result)
     }
 
-    /// Select a legacy group using the most-specific matching CIDR.
-    pub fn group_for_ip(&self, ip: IpAddr) -> Option<&str> {
+    /// Select a legacy group and report whether it came from a CIDR or fallback.
+    pub fn legacy_group_for_ip(&self, ip: IpAddr) -> Option<LegacyGroupMatch<'_>> {
         self.groups
             .iter()
             .flat_map(|(name, group)| {
@@ -304,13 +330,18 @@ impl Config {
                 })
             })
             .max_by_key(|(prefix, _)| *prefix)
-            .map(|(_, name)| name)
+            .map(|(_, name)| LegacyGroupMatch::Cidr(name))
             .or_else(|| {
                 self.groups
                     .get(&self.default_group)
                     .is_some_and(|group| group.legacy_xmlrpc)
-                    .then_some(self.default_group.as_str())
+                    .then_some(LegacyGroupMatch::Default(&self.default_group))
             })
+    }
+
+    /// Select a legacy group using the most-specific matching CIDR.
+    pub fn group_for_ip(&self, ip: IpAddr) -> Option<&str> {
+        self.legacy_group_for_ip(ip).map(LegacyGroupMatch::group)
     }
 
     /// Authenticate a group token and return its group.
@@ -645,8 +676,12 @@ digest = "{}"
     fn selects_tokens_and_specific_cidrs() {
         let mut config = config();
         assert_eq!(
-            config.group_for_ip("192.0.2.1".parse().unwrap()),
-            Some("private")
+            config.legacy_group_for_ip("192.0.2.1".parse().unwrap()),
+            Some(LegacyGroupMatch::Cidr("private"))
+        );
+        assert_eq!(
+            config.legacy_group_for_ip("198.51.100.1".parse().unwrap()),
+            Some(LegacyGroupMatch::Default("public"))
         );
         config.groups.get_mut("private").unwrap().legacy_xmlrpc = false;
         assert_eq!(

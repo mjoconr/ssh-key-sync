@@ -63,6 +63,15 @@ Keep XML-RPC disabled unless a specific legacy group needs it. Migrate those
 clients, monitor their source networks, and remove the route when its use is
 zero. Do not describe CIDR matching as authentication.
 
+Unknown source addresses currently fall back to the default group when that
+group has `legacy_xmlrpc = true`. This preserves compatibility, but it also
+means a source that matches no configured CIDR can still receive the default
+group. Requests using this path are logged at warning level with
+`selection="default_fallback"`. Treat unexpected fallback requests as a
+security event. The planned hardening change is to reject unmatched sources
+instead of falling back; the default group should continue to apply only to the
+native unsigned public endpoint.
+
 ### Public Proxy And Host Exposure
 
 Caddy provides HTTPS and ACME. It does not make an incorrectly exposed Rust
@@ -136,11 +145,13 @@ made.
 3. Disable Caddy's admin API and overwrite the forwarded client address.
 4. Confirm signing-key, state and state-directory permissions.
 5. Keep legacy XML-RPC off except for named migration groups.
-6. Keep an independent SSH session open while changing `sshd`.
-7. Verify a fresh SSH login before retiring an old key source or enrollment.
-8. Review CI, CodeQL, Dependabot and security advisories before a release.
-9. Test backup restoration and update rollback on non-production systems.
-10. Do not commit deployment addresses, private keys, tokens or production
+6. Review `selection="default_fallback"` warnings and remove the fallback
+   compatibility behavior after the current legacy clients are inventoried.
+7. Keep an independent SSH session open while changing `sshd`.
+8. Verify a fresh SSH login before retiring an old key source or enrollment.
+9. Review CI, CodeQL, Dependabot and security advisories before a release.
+10. Test backup restoration and update rollback on non-production systems.
+11. Do not commit deployment addresses, private keys, tokens or production
     configuration to this repository.
 
 ## Conclusion

@@ -25,11 +25,11 @@ configuration.
 
 ## Status
 
-Version `0.6.20` is the current release. It provides signed key responses,
-enrollment and machine-token workflows, validated key/group/CIDR edits, a
-terminal administration interface, systemd and cron deployment, checksum-verified
-and cryptographically signed optional auto-updates, SQLite backups, and
-i686/x86-64/ARM64 static builds.
+Version `0.7.0` is the current release. It provides signed key responses,
+enrollment and machine-token workflows, explicit-CIDR legacy source selection,
+validated key/group/CIDR edits, a terminal administration interface, systemd
+and cron deployment, checksum-verified and cryptographically signed optional
+auto-updates, SQLite backups, and i686/x86-64/ARM64 static builds.
 
 There is no web interface. See [releases.md](docs/releases.md) for release trust,
 first-install bootstrap, fork signing keys, and key rotation.

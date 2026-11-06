@@ -123,8 +123,8 @@ Before removing `/xmlrpc/`:
    zero for an agreed observation window.
 
 XML-RPC source selection now rejects addresses that do not match an explicit
-CIDR on a legacy-enabled group. The next release must call out this behavior
-change so operators can add missing CIDRs before upgrading.
+CIDR on a legacy-enabled group. The `v0.7.0` release notes call out this
+behavior change so operators can add missing CIDRs before upgrading.
 
 Do not delete CIDR configuration until replacement tokens are active and tested.
 

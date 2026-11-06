@@ -1,7 +1,6 @@
 # Public Exposure Review
 
-Reviewed release: `v0.6.20`, plus the legacy CIDR hardening currently on
-`main` and pending release.
+Reviewed release: `v0.7.0`.
 
 This review covers the code and deployment shape that make SSH Key Sync safe to
 expose through a public HTTPS reverse proxy. It is not a penetration test or a

@@ -12,8 +12,8 @@ require_forwarded_client_ip = false
 
 [groups.public]
 visibility = "public"
-legacy_xmlrpc = true
 
+# Legacy XML-RPC requires an explicit CIDR; unmatched sources are rejected.
 [groups.restricted]
 visibility = "private"
 token_ttl_days = 90

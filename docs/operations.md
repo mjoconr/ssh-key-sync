@@ -598,10 +598,13 @@ the replacement has been verified.
 `POST /xmlrpc/` remains only for machines that cannot run the native HTTPS
 client. It selects keys from the source CIDR and cannot distinguish two
 machines behind the same NAT address. It is therefore not a replacement for
-machine tokens.
+machine tokens. Sources that match no explicit CIDR on a legacy-enabled group
+are rejected; the default group is not used as a compatibility fallback. Add
+the correct source CIDR before upgrading systems that still use this route.
 
 Successful requests are recorded in the server journal with the selected group,
 observed source address, client-supplied `platform.node()` value and key count.
+Rejected requests record the source address and a no-matching-CIDR reason.
 Caddy access logs use a filter that removes `Authorization`, `Cookie` and
 inbound `X-Real-IP` headers. Review legacy activity with:
 
@@ -663,10 +666,12 @@ retired.
 Before migrating the proxy to the Rust compatibility endpoint:
 
 1. Set `legacy_xmlrpc = true` only on groups used by current legacy clients.
-2. Test direct Rust responses with the proxy's expected `X-Real-IP` value.
-3. Confirm a missing or malformed header fails closed.
-4. Compare the returned key set and XML formatting with the current endpoint.
-5. Keep the PHP configuration available for rollback until a complete
+2. Add an explicit source CIDR for every remaining legacy client; unmatched
+   sources are rejected.
+3. Test direct Rust responses with the proxy's expected `X-Real-IP` value.
+4. Confirm a missing or malformed header fails closed.
+5. Compare the returned key set and XML formatting with the current endpoint.
+6. Keep the PHP configuration available for rollback until a complete
    synchronization cycle has passed.
 
 ## Failure And Rollback

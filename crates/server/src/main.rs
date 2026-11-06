@@ -27,14 +27,14 @@ use ed25519_dalek::SigningKey;
 use serde::Deserialize;
 use serde::Serialize;
 use ssh_key_sync_core::{
-    Config, KeySetPayload, LegacyGroupMatch, PROTOCOL_SCHEMA_VERSION, SignedEnvelope,
-    encode_release_verifying_key, load_release_verifying_key, load_signing_key,
-    load_signing_key_secure, release_verifying_key_fingerprint, sign_payload,
-    sign_release_manifest, token_digest, unix_now, validate_token_digest, verify_release_manifest,
+    Config, KeySetPayload, PROTOCOL_SCHEMA_VERSION, SignedEnvelope, encode_release_verifying_key,
+    load_release_verifying_key, load_signing_key, load_signing_key_secure,
+    release_verifying_key_fingerprint, sign_payload, sign_release_manifest, token_digest, unix_now,
+    validate_token_digest, verify_release_manifest,
 };
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 mod config_edit;
@@ -1167,15 +1167,14 @@ async fn xmlrpc(
     let Ok(source_ip) = client_ip(&headers, peer.ip(), config.require_forwarded_client_ip) else {
         return xml_fault(400, "Missing or invalid client address");
     };
-    let Some(group_match) = config.legacy_group_for_ip(source_ip) else {
+    let Some(group) = config.group_for_ip(source_ip) else {
         info!(
             %source_ip,
             client_name = %requested_name,
-            "legacy XML-RPC request without an enabled group"
+            "legacy XML-RPC request without a matching enabled CIDR"
         );
         return xml_fault(403, "No legacy key group");
     };
-    let group = group_match.group();
     let keys = match config.keys_for_group(group) {
         Ok(keys) => keys,
         Err(error) => {
@@ -1183,25 +1182,13 @@ async fn xmlrpc(
             return xml_fault(500, "Server error");
         }
     };
-    if matches!(group_match, LegacyGroupMatch::Default(_)) {
-        warn!(
-            group,
-            %source_ip,
-            client_name = %requested_name,
-            key_count = keys.len(),
-            selection = group_match.selection(),
-            "legacy XML-RPC key request used default-group fallback"
-        );
-    } else {
-        info!(
-            group,
-            %source_ip,
-            client_name = %requested_name,
-            key_count = keys.len(),
-            selection = group_match.selection(),
-            "legacy XML-RPC key request"
-        );
-    }
+    info!(
+        group,
+        %source_ip,
+        client_name = %requested_name,
+        key_count = keys.len(),
+        "legacy XML-RPC key request"
+    );
     let mut text = keys
         .into_iter()
         .map(|key| key.authorized_keys)

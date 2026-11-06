@@ -32,7 +32,8 @@ changing configuration on clients.
 - A private-group authentication failure never falls back to the public group.
 - CIDR matching uses observed addresses from a trusted proxy path.
 - XML-RPC source-CIDR selection is disabled per group unless explicitly
-  enabled.
+  enabled, and sources that match no explicit CIDR are rejected without a
+  default-group fallback.
 - Loopback proxy requests require one valid source-address header.
 - The client rejects invalid signatures, expired responses, malformed keys,
   fingerprint mismatches, empty sets, and symlink destinations.

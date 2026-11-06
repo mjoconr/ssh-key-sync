@@ -28,8 +28,8 @@ The native API supports:
 
 The XML-RPC compatibility endpoint selects a group from the server-observed
 source address, using the longest matching CIDR among legacy-enabled groups.
-If no CIDR matches, it uses the default group only when that group is also
-legacy-enabled.
+Sources that match no explicit CIDR are rejected; the default group is never
+used as a compatibility fallback.
 
 Keys are parsed with the OpenSSH key format and deduplicated by fingerprint.
 The administration interface displays the canonical OpenSSH algorithm, such as

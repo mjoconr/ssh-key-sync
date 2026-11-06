@@ -118,13 +118,13 @@ Before removing `/xmlrpc/`:
 1. Inventory every remaining legacy client and its TLS capability.
 2. Record which systems use CIDR-derived groups.
 3. Migrate active clients to native API tokens.
-4. Monitor legacy request counts and source networks.
-5. Change XML-RPC source selection to reject addresses that do not match an
-   explicit CIDR. Until then, alert on every
-   `selection="default_fallback"` warning; the current compatibility fallback
-   gives unmatched sources the legacy-enabled default group.
-6. Disable the compatibility route only after the request count has remained
+4. Monitor legacy request counts, source networks, and rejected requests.
+5. Disable the compatibility route only after the request count has remained
    zero for an agreed observation window.
+
+XML-RPC source selection now rejects addresses that do not match an explicit
+CIDR on a legacy-enabled group. The next release must call out this behavior
+change so operators can add missing CIDRs before upgrading.
 
 Do not delete CIDR configuration until replacement tokens are active and tested.
 

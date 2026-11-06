@@ -1,6 +1,7 @@
 # Public Exposure Review
 
-Reviewed release: `v0.6.20`
+Reviewed release: `v0.6.20`, plus the legacy CIDR hardening currently on
+`main` and pending release.
 
 This review covers the code and deployment shape that make SSH Key Sync safe to
 expose through a public HTTPS reverse proxy. It is not a penetration test or a
@@ -63,14 +64,12 @@ Keep XML-RPC disabled unless a specific legacy group needs it. Migrate those
 clients, monitor their source networks, and remove the route when its use is
 zero. Do not describe CIDR matching as authentication.
 
-Unknown source addresses currently fall back to the default group when that
-group has `legacy_xmlrpc = true`. This preserves compatibility, but it also
-means a source that matches no configured CIDR can still receive the default
-group. Requests using this path are logged at warning level with
-`selection="default_fallback"`. Treat unexpected fallback requests as a
-security event. The planned hardening change is to reject unmatched sources
-instead of falling back; the default group should continue to apply only to the
-native unsigned public endpoint.
+Requests from sources that match no explicitly configured CIDR on a
+legacy-enabled group are rejected. The default group is never used as a
+compatibility fallback; it applies only to the native unsigned public endpoint.
+Operators migrating existing clients must add the correct source CIDR before
+deploying this behavior and should review rejected legacy requests as potential
+migration gaps or unexpected traffic.
 
 ### Public Proxy And Host Exposure
 
@@ -144,9 +143,9 @@ made.
 2. Publish only the intended Caddy routes; unknown paths must return `404`.
 3. Disable Caddy's admin API and overwrite the forwarded client address.
 4. Confirm signing-key, state and state-directory permissions.
-5. Keep legacy XML-RPC off except for named migration groups.
-6. Review `selection="default_fallback"` warnings and remove the fallback
-   compatibility behavior after the current legacy clients are inventoried.
+5. Keep legacy XML-RPC off except for named migration groups with explicit
+   source CIDRs.
+6. Review rejected legacy requests for missing CIDRs or unexpected traffic.
 7. Keep an independent SSH session open while changing `sshd`.
 8. Verify a fresh SSH login before retiring an old key source or enrollment.
 9. Review CI, CodeQL, Dependabot and security advisories before a release.

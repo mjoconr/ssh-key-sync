@@ -17,19 +17,10 @@ journalctl \
     sort -nr || true
 
 echo
-echo "Requests rejected because the source had no enabled legacy group"
+echo "Requests rejected because the source matched no enabled legacy CIDR"
 journalctl \
     -u ssh-key-sync-server.service \
     --since "$since" \
     --no-pager \
     -o cat 2>/dev/null |
-    grep -c 'legacy XML-RPC request without an enabled group' || true
-
-echo
-echo "Requests allowed only by the legacy default-group fallback"
-journalctl \
-    -u ssh-key-sync-server.service \
-    --since "$since" \
-    --no-pager \
-    -o cat 2>/dev/null |
-    grep -Ec 'selection="?default_fallback"?' || true
+    grep -c 'legacy XML-RPC request without a matching enabled CIDR' || true

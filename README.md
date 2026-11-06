@@ -7,7 +7,8 @@ configuration.
 ## Features
 
 - Public groups and token-protected groups.
-- CIDR-based group selection for the compatibility API.
+- Explicit-CIDR group selection for the compatibility API, with unmatched
+  sources rejected.
 - Ed25519-signed native responses bound to a client nonce.
 - Static Linux i686, x86-64, and ARM64 client builds supporting old and
   current OpenSSH installations.
@@ -173,9 +174,11 @@ host-managed keys have been preserved elsewhere.
 ## Legacy XML-RPC
 
 `POST /xmlrpc/` implements `ssh.getKeys` for existing clients. It uses the
-server-observed client address and configured CIDR rules. It is a compatibility
-interface for systems that cannot use the native HTTPS client; monitor its use
-so it can be retired after those systems migrate.
+server-observed client address and configured CIDR rules. Sources that match no
+explicit CIDR on a legacy-enabled group are rejected; the default group is not
+used as a compatibility fallback. It is a compatibility interface for systems
+that cannot use the native HTTPS client; monitor its use so it can be retired
+after those systems migrate.
 
 ## Development
 

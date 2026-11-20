@@ -291,6 +291,17 @@ ssh-key-sync-server group set-legacy GROUP_NAME false
 
 Enable it only for groups still required by legacy XML-RPC clients.
 
+### Emergency access keys
+
+An authorization file may intentionally contain keys that are not used during
+normal operation. These can be break-glass or bus-factor access for another
+administrator. Do not remove a key solely because it has no recent logins.
+
+Before removing an unused key, confirm with the system owner, record the key's
+owner, purpose and fingerprint in the change record, and verify that another
+access path exists. Review keys by fingerprint and comment, not by usage alone;
+an unused key that is documented as intentional must remain.
+
 ## Terminal UI
 
 Open the local administration interface with:

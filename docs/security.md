@@ -39,6 +39,8 @@ changing configuration on clients.
   fingerprint mismatches, empty sets, and symlink destinations.
 - Key files are written atomically with mode `0600`.
 - Existing authorization files are preserved.
+- Unused authorized keys may be intentional break-glass or bus-factor access;
+  removal requires owner confirmation and a recorded purpose, not usage alone.
 - `sshd` changes are validated and rolled back on failure.
 - Effective `AuthorizedKeysFile` detection supports both current `sshd -T -C`
   output and legacy separate `AuthorizedKeysFile2` output.

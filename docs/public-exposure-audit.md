@@ -1,6 +1,6 @@
 # Public Exposure Review
 
-Reviewed release: `v0.7.0`.
+Reviewed release: `v0.7.1`.
 
 This review covers the code and deployment shape that make SSH Key Sync safe to
 expose through a public HTTPS reverse proxy. It is not a penetration test or a
@@ -24,8 +24,10 @@ they do not grant SSH access.
   nonce, expiry, schema and key fingerprints before replacing a file.
 - Private requests fail closed when a token is missing or invalid. They do not
   fall back to a public group.
-- `authorized_keys` is replaced atomically with mode `0600`. Empty sets and
-  symlink destinations are refused unless explicitly allowed.
+- `authorized_keys` is replaced atomically with mode `0644` by default, or the
+  configured `authorized_keys_mode`; group/other write is rejected. It contains
+  public keys and remains root-owned. Empty sets and symlink destinations are
+  refused unless explicitly allowed.
 - The Rust server binds to loopback unless an operator deliberately overrides
   that setting. The supplied Caddy example exposes only `/v1/` and the legacy
   XML-RPC paths.

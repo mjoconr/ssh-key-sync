@@ -13,6 +13,8 @@ configuration.
 - Static Linux i686, x86-64, and ARM64 client builds supporting old and
   current OpenSSH installations.
 - Atomic `authorized_keys` replacement with empty-response protection.
+- Configurable managed-file permissions and automatic `AuthorizedKeysFile`
+  repair.
 - Separate managed and existing authorization files.
 - Safe `sshd` changes with validation, reload, and rollback.
 - systemd timers and cron-only client support.
@@ -25,7 +27,7 @@ configuration.
 
 ## Status
 
-Version `0.7.0` is the current release. It provides signed key responses,
+Version `0.7.1` is the current release. It provides signed key responses,
 enrollment and machine-token workflows, explicit-CIDR legacy source selection,
 validated key/group/CIDR edits, a terminal administration interface, systemd
 and cron deployment, checksum-verified and cryptographically signed optional

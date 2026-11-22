@@ -102,8 +102,12 @@ struct ClientConfig {
     server_url: String,
     verifying_key_file: PathBuf,
     authorized_keys_file: PathBuf,
+    #[serde(default = "default_authorized_keys_mode")]
+    authorized_keys_mode: u32,
     #[serde(default = "default_true")]
     require_effective_sshd: bool,
+    #[serde(default = "default_true")]
+    auto_repair_sshd: bool,
     #[serde(default)]
     token_file: Option<PathBuf>,
     #[serde(default)]
@@ -112,6 +116,19 @@ struct ClientConfig {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_authorized_keys_mode() -> u32 {
+    0o644
+}
+
+fn validate_authorized_keys_mode(mode: u32) -> Result<u32, Box<dyn std::error::Error>> {
+    if mode & !0o777 != 0 || mode & 0o022 != 0 {
+        return Err(
+            "authorized_keys_mode must be a permission mode without group/other write".into(),
+        );
+    }
+    Ok(mode)
 }
 
 fn is_enrollment_address(address: IpAddr) -> bool {
@@ -158,6 +175,7 @@ impl ClientConfig {
             return Err("unsupported client schema_version".into());
         }
         validate_server_url(&config.server_url)?;
+        validate_authorized_keys_mode(config.authorized_keys_mode)?;
         Ok(config)
     }
 }
@@ -401,22 +419,49 @@ async fn enrollment_status(
     }
 }
 
+fn ensure_sshd_effective(
+    config: &ClientConfig,
+    config_path: &Path,
+    dry_run: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if !config.require_effective_sshd {
+        return Ok(());
+    }
+    let managed = config
+        .authorized_keys_file
+        .to_str()
+        .ok_or("managed authorized_keys path is not UTF-8")?;
+    let mut effective = effective_authorized_keys_file()?;
+    if !authorized_keys_path_is_effective(managed, &effective)
+        && config.auto_repair_sshd
+        && !dry_run
+    {
+        eprintln!("managed authorized_keys path is not effective in sshd: {managed}; repairing");
+        configure_sshd(
+            config_path,
+            true,
+            false,
+            Path::new("/etc/ssh/sshd_config.d/20-ssh-key-sync.conf"),
+        )?;
+        effective = effective_authorized_keys_file()?;
+    }
+    if authorized_keys_path_is_effective(managed, &effective) {
+        return Ok(());
+    }
+    let repair = if config.auto_repair_sshd {
+        "run sync without --dry-run to repair automatically"
+    } else {
+        "run configure-sshd --apply"
+    };
+    Err(format!(
+        "managed authorized_keys path is not effective in sshd: {managed}; effective: {effective}; {repair}"
+    )
+    .into())
+}
+
 async fn sync(config_path: &Path, dry_run: bool) -> Result<(), Box<dyn std::error::Error>> {
     let config = ClientConfig::load(config_path)?;
-    if config.require_effective_sshd {
-        let managed = config
-            .authorized_keys_file
-            .to_str()
-            .ok_or("managed authorized_keys path is not UTF-8")?;
-        let effective = effective_authorized_keys_file()?;
-        if !authorized_keys_path_is_effective(managed, &effective) {
-            return Err(format!(
-                "managed authorized_keys path is not effective in sshd: {managed}; effective: {effective}; run: ssh-key-sync-client --config {} configure-sshd --apply",
-                config_path.display()
-            )
-            .into());
-        }
-    }
+    ensure_sshd_effective(&config, config_path, dry_run)?;
     let verifying_key = load_verifying_key(&config.verifying_key_file)?;
     let nonce = new_nonce();
     let endpoint = format!(
@@ -478,12 +523,16 @@ async fn sync(config_path: &Path, dry_run: bool) -> Result<(), Box<dyn std::erro
         );
         return Ok(());
     }
-    install_file(&config.authorized_keys_file, content.as_bytes())?;
+    install_file(
+        &config.authorized_keys_file,
+        content.as_bytes(),
+        config.authorized_keys_mode,
+    )?;
     println!("installed {}", config.authorized_keys_file.display());
     Ok(())
 }
 
-fn install_file(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+fn install_file(path: &Path, content: &[u8], mode: u32) -> Result<(), Box<dyn std::error::Error>> {
     let parent = path.parent().ok_or("authorized_keys path has no parent")?;
     fs::create_dir_all(parent)?;
     let lock_path = path.with_extension("lock");
@@ -501,7 +550,7 @@ fn install_file(path: &Path, content: &[u8]) -> Result<(), Box<dyn std::error::E
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     temporary
         .as_file()
-        .set_permissions(fs::Permissions::from_mode(0o600))?;
+        .set_permissions(fs::Permissions::from_mode(mode))?;
     temporary.write_all(content)?;
     temporary.as_file_mut().sync_all()?;
     temporary.persist(path)?;
@@ -918,8 +967,53 @@ mod tests {
     fn atomic_install_replaces_content() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("authorized_keys");
-        install_file(&path, b"").unwrap();
-        assert_eq!(fs::read(path).unwrap(), b"");
+        install_file(&path, b"", 0o644).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"");
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+    }
+
+    #[test]
+    fn authorized_keys_mode_rejects_group_or_other_write() {
+        assert_eq!(validate_authorized_keys_mode(0o644).unwrap(), 0o644);
+        assert_eq!(validate_authorized_keys_mode(0o600).unwrap(), 0o600);
+        assert!(validate_authorized_keys_mode(0o664).is_err());
+        assert!(validate_authorized_keys_mode(0o666).is_err());
+        assert!(validate_authorized_keys_mode(0o1000).is_err());
+    }
+
+    #[test]
+    fn client_config_defaults_to_readable_managed_file() {
+        let config: ClientConfig = toml::from_str(
+            r#"
+schema_version = 1
+server_url = "https://keys.example.net"
+verifying_key_file = "/etc/ssh-key-sync/signing.pub"
+authorized_keys_file = "/etc/ssh/authorized_keys.d/root"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.authorized_keys_mode, 0o644);
+        assert!(config.auto_repair_sshd);
+    }
+
+    #[test]
+    fn client_config_parses_explicit_octal_mode() {
+        let config: ClientConfig = toml::from_str(
+            r#"
+schema_version = 1
+server_url = "https://keys.example.net"
+verifying_key_file = "/etc/ssh-key-sync/signing.pub"
+authorized_keys_file = "/etc/ssh/authorized_keys.d/root"
+authorized_keys_mode = 0o600
+auto_repair_sshd = false
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.authorized_keys_mode, 0o600);
+        assert!(!config.auto_repair_sshd);
     }
 
     #[test]

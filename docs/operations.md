@@ -162,6 +162,15 @@ runtime directory when a minimal or container system has not done so. Use
 `configure-sshd --apply` to preserve existing authorization files and add the
 managed path.
 
+The managed file is written with mode `0644` by default so non-root admin
+accounts listed in `AuthorizedKeysFile` can read the public keys. Override it
+with `authorized_keys_mode = 0o600` for root-only files; group/other write
+modes are rejected. Private keys, tokens and state remain `0600`. With
+`auto_repair_sshd = true` (the default), a real sync adds a missing managed
+path to `AuthorizedKeysFile` automatically using the same validation and
+rollback as `configure-sshd --apply`. Set it to `false` to keep sshd changes
+manual. `sync --dry-run` does not modify sshd.
+
 Open a new SSH session before closing recovery access.
 
 ## Private-Group Enrollment

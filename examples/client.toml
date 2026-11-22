@@ -2,11 +2,18 @@ schema_version = 1
 server_url = "http://127.0.0.1:18080"
 verifying_key_file = "/etc/ssh-key-sync/signing.pub"
 authorized_keys_file = "/etc/ssh/authorized_keys.d/root"
+# 0644 lets non-root admin accounts read the managed public-key file.
+# Private keys, tokens and state remain 0600.
+authorized_keys_mode = 0o644
 allow_empty = false
 
 # Sync fails unless sshd reports authorized_keys_file as effective.
 # Set false only when distributing keys for another SSH implementation.
 # require_effective_sshd = false
+
+# Add authorized_keys_file to sshd automatically when it is missing.
+# Set false to keep sshd configuration changes manual.
+auto_repair_sshd = true
 
 # Set this only when using a restricted group token.
 # token_file = "/etc/ssh-key-sync/token"

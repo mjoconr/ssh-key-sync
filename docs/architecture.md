@@ -128,9 +128,10 @@ The client writes a dedicated file:
 Existing authorization files remain untouched and are added alongside the
 managed file using `AuthorizedKeysFile`.
 
-Installation uses a lock, restrictive permissions, a temporary file in the same
-directory, `fsync`, and atomic rename. Empty or invalid responses do not change
-the active file.
+Installation uses a lock, `authorized_keys_mode` permissions (`0644` by
+default so non-root admin accounts can read the public keys, with group/other
+write rejected), a temporary file in the same directory, `fsync`, and atomic
+rename. Empty or invalid responses do not change the active file.
 
 `configure-sshd` validates changes with `sshd -t`. It prefers a drop-in file and
 falls back to a marked block in `sshd_config` when includes are unavailable.

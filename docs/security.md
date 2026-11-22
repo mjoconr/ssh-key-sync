@@ -37,7 +37,11 @@ changing configuration on clients.
 - Loopback proxy requests require one valid source-address header.
 - The client rejects invalid signatures, expired responses, malformed keys,
   fingerprint mismatches, empty sets, and symlink destinations.
-- Key files are written atomically with mode `0600`.
+- Managed `authorized_keys` files are written atomically with mode `0644` by
+  default, or the configured `authorized_keys_mode`; group/other write is
+  rejected. The file contains public keys, is root-owned, and is readable by
+  non-root admin accounts when they are listed in `AuthorizedKeysFile`.
+  Private keys, tokens and state remain `0600`.
 - Existing authorization files are preserved.
 - Unused authorized keys may be intentional break-glass or bus-factor access;
   removal requires owner confirmation and a recorded purpose, not usage alone.

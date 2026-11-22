@@ -132,7 +132,7 @@ test "$status" = "413"
 ssh-key-sync-client --config public-client.toml sync --dry-run
 test ! -e public_authorized_keys
 ssh-key-sync-client --config public-client.toml sync
-test "$(stat -c '%a' public_authorized_keys)" = "600"
+test "$(stat -c '%a' public_authorized_keys)" = "644"
 grep -q 'docker-test$' public_authorized_keys
 
 enrollment_output="$(ssh-key-sync-client --config restricted-client.toml enroll --name docker-test)"
@@ -171,6 +171,7 @@ sshd -T -C user=root,host=localhost,addr=127.0.0.1 \
 ssh-key-sync-client --config sshd-client.toml sync --dry-run \
     | grep -q 'verified group public'
 ssh-key-sync-client --config sshd-client.toml sync
+test "$(stat -c '%a' /etc/ssh/authorized_keys.d/root)" = "644"
 mkdir -p "$legacy_ssh_directory"
 cp /etc/ssh/authorized_keys.d/root "$legacy_ssh_directory/authorized_keys"
 ssh-key-sync-client --config sshd-client.toml retire-legacy-authorized-keys \

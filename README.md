@@ -27,7 +27,7 @@ configuration.
 
 ## Status
 
-Version `0.7.1` is the current release. It provides signed key responses,
+Version `0.7.2` is the current release. It provides signed key responses,
 enrollment and machine-token workflows, explicit-CIDR legacy source selection,
 validated key/group/CIDR edits, a terminal administration interface, systemd
 and cron deployment, checksum-verified and cryptographically signed optional

@@ -320,10 +320,23 @@ ssh-key-sync-server tui
 ```
 
 The TUI refreshes pending enrollment state every two seconds, shows the pending
-count, and emits a terminal bell when a new request arrives. Use `F5` to reload
-the server configuration after an external edit. In the enrollment view the
-current search, filter, sort, grouping, and visible/total counts remain on
+count, and emits a terminal bell when a new request arrives. The header also
+shows pending conflicts, stale tokens, and duplicate-token groups. Use `F5` to
+reload the server configuration after an external edit. In the enrollment view
+the current search, filter, sort, grouping, and visible/total counts remain on
 screen while navigating.
+
+An enrollment conflict lists the conflicting request codes and the replacement
+sequence: select the approved enrollment, press `P`, install the generated
+request on the new host, approve it, verify the new SSH session, then press `X`
+on the old enrollment to retire it. `A` on a conflicted pending request is
+blocked with that instruction.
+
+In the token view, a `!` marks a label/group with more than one active token.
+The details panel identifies the newest token and says whether the selected
+token is the newest or an older one. Verify the newest token, then use `R` to
+revoke the older token and `X` to hide it. Revoked tokens remain visible until
+hidden.
 
 | Key | Action |
 | --- | --- |

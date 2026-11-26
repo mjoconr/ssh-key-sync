@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     io,
     path::PathBuf,
     time::{Duration, Instant},
@@ -384,8 +384,9 @@ fn handle_key(app: &mut App, code: KeyCode) -> Result<bool, Box<dyn std::error::
                                 .map(|item| item.code.as_str())
                                 .collect::<Vec<_>>()
                                 .join(",");
-                            app.message =
-                                format!("active identity conflict: {ids}; use P replacement flow");
+                            app.message = format!(
+                                "approval blocked: conflicts {ids}; select the approved row, press P, verify the new login, then X on the old row"
+                            );
                             app.overlay = Overlay::None;
                             return Ok(false);
                         }
@@ -1382,7 +1383,7 @@ fn draw(frame: &mut ratatui::Frame<'_>, app: &App) {
     let areas = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(4),
             Constraint::Min(8),
             Constraint::Length(3),
         ])
@@ -1479,6 +1480,28 @@ fn draw_enrollment_search(frame: &mut ratatui::Frame<'_>, value: &str) {
     );
 }
 
+fn duplicate_active_token_labels(tokens: &[TokenRecord]) -> BTreeMap<(String, String), usize> {
+    let mut counts = BTreeMap::new();
+    for token in tokens.iter().filter(|token| token.revoked_at.is_none()) {
+        *counts
+            .entry((token.label.clone(), token.group.clone()))
+            .or_insert(0) += 1;
+    }
+    counts.retain(|_, count| *count > 1);
+    counts
+}
+
+fn newest_active_token<'a>(
+    tokens: &'a [TokenRecord],
+    label: &str,
+    group: &str,
+) -> Option<&'a TokenRecord> {
+    tokens
+        .iter()
+        .filter(|token| token.revoked_at.is_none() && token.label == label && token.group == group)
+        .max_by_key(|token| token.created_at)
+}
+
 fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let title = match app.tab {
         Tab::Enrollments => "Enrollments",
@@ -1487,23 +1510,36 @@ fn draw_header(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
         Tab::Keys => "Public Keys",
     };
     let now = unix_now();
-    let stale_tokens = app.state.list_tokens().map_or(0, |items| {
+    let tokens = app.state.list_tokens().unwrap_or_default();
+    let stale_tokens = tokens
+        .iter()
+        .filter(|item| {
+            item.check_in(now, app.config.stale_after_hours)
+                .needs_attention()
+        })
+        .count();
+    let duplicate_tokens = duplicate_active_token_labels(&tokens).len();
+    let conflicted = app.state.list_enrollments().map_or(0, |items| {
         items
             .iter()
             .filter(|item| {
-                item.check_in(now, app.config.stale_after_hours)
-                    .needs_attention()
+                item.status == "pending"
+                    && app
+                        .state
+                        .enrollment_conflicts(item)
+                        .is_ok_and(|conflicts| !conflicts.is_empty())
             })
             .count()
     });
+    let warning = conflicted > 0 || duplicate_tokens > 0;
     frame.render_widget(
         Paragraph::new(format!(
-            " SSH Key Sync | {title} | pending={} stale={} | [Tab]section [I]nstall [F5]refresh [Q]uit ",
-            app.pending_count, stale_tokens
+            " SSH Key Sync | {title} | [Tab]section [I]nstall [F5]refresh [Q]uit\n pending={} conflicts={} stale={} duplicate-token-groups={}",
+            app.pending_count, conflicted, stale_tokens, duplicate_tokens
         ))
         .style(
             Style::default()
-                .fg(Color::Cyan)
+                .fg(if warning { Color::Yellow } else { Color::Cyan })
                 .add_modifier(Modifier::BOLD),
         )
         .block(Block::default().borders(Borders::ALL)),
@@ -1843,13 +1879,19 @@ fn enrollment_detail_lines(app: &App, item: &Enrollment) -> Vec<Line<'static>> {
         lines.push(Line::from("Identity conflicts: none"));
     } else {
         lines.push(Line::from(format!(
-            "Identity conflicts: {} (use P replacement)",
+            "Identity conflicts: {}",
             conflicts
                 .iter()
                 .map(|item| sanitize_metadata(&item.code, 16))
                 .collect::<Vec<_>>()
                 .join(",")
         )));
+        lines.push(Line::from(
+            "Next: select the approved enrollment, press P, enter the new hostname,",
+        ));
+        lines.push(Line::from(
+            "run the install command, approve the new request, verify login, then X.",
+        ));
     }
     lines
 }
@@ -1894,13 +1936,19 @@ fn draw_enrollments(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
 
 fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     let items = app.state.list_tokens().unwrap_or_default();
+    let duplicates = duplicate_active_token_labels(&items);
     let now = unix_now();
     let stale_after_hours = app.config.stale_after_hours;
     let rows = items
         .iter()
         .map(|item| {
+            let marker = if duplicates.contains_key(&(item.label.clone(), item.group.clone())) {
+                "!"
+            } else {
+                " "
+            };
             ListItem::new(format!(
-                "{:<24} {:<14} {:<15}",
+                "{marker} {:<24} {:<14} {:<15}",
                 sanitize_metadata(&item.label, 255),
                 sanitize_metadata(&item.group, 128),
                 item.check_in(now, stale_after_hours).label()
@@ -1925,50 +1973,83 @@ fn draw_tokens(frame: &mut ratatui::Frame<'_>, app: &App, area: Rect) {
     );
     let details = items.get(selected).map_or_else(
         || vec![Line::from("No token selected")],
-        |item| {
-            let check_in = item.check_in(now, stale_after_hours);
-            let last_check_in = item.last_check_in_at();
-            vec![
-                Line::from(format!("ID: {}", sanitize_metadata(&item.id, 128))),
-                Line::from(format!("Label: {}", sanitize_metadata(&item.label, 255))),
-                Line::from(format!("Group: {}", sanitize_metadata(&item.group, 128))),
-                Line::from(format!("Check-in: {}", check_in.label())),
-                Line::from(format!(
-                    "Last check-in: {last_check_in} ({} ago)",
-                    format_age(now.saturating_sub(last_check_in))
-                )),
-                Line::from(format!("Stale after: {stale_after_hours}h")),
-                Line::from(format!("Created: {}", item.created_at)),
-                Line::from(format!(
-                    "Expires: {}",
-                    item.expires_at
-                        .map_or_else(|| "-".into(), |value| value.to_string())
-                )),
-                Line::from(format!(
-                    "Revoked: {}",
-                    item.revoked_at
-                        .map_or_else(|| "-".into(), |value| value.to_string())
-                )),
-                Line::from(format!(
-                    "Last used: {}",
-                    item.last_used_at
-                        .map_or_else(|| "-".into(), |value| value.to_string())
-                )),
-                Line::from(format!(
-                    "Last source: {}",
-                    sanitize_metadata(item.last_source_ip.as_deref().unwrap_or("-"), 64)
-                )),
-                Line::from(format!(
-                    "Client: {}",
-                    sanitize_metadata(item.last_client_version.as_deref().unwrap_or("-"), 128)
-                )),
-            ]
-        },
+        |item| token_detail_lines(&items, item, now, stale_after_hours, &duplicates),
     );
     frame.render_widget(
         Paragraph::new(details).block(Block::default().title(" Details ").borders(Borders::ALL)),
         columns[1],
     );
+}
+
+fn token_detail_lines(
+    tokens: &[TokenRecord],
+    item: &TokenRecord,
+    now: u64,
+    stale_after_hours: u64,
+    duplicates: &BTreeMap<(String, String), usize>,
+) -> Vec<Line<'static>> {
+    let check_in = item.check_in(now, stale_after_hours);
+    let last_check_in = item.last_check_in_at();
+    let mut lines = vec![
+        Line::from(format!("ID: {}", sanitize_metadata(&item.id, 128))),
+        Line::from(format!("Label: {}", sanitize_metadata(&item.label, 255))),
+        Line::from(format!("Group: {}", sanitize_metadata(&item.group, 128))),
+        Line::from(format!("Check-in: {}", check_in.label())),
+        Line::from(format!(
+            "Last check-in: {last_check_in} ({} ago)",
+            format_age(now.saturating_sub(last_check_in))
+        )),
+        Line::from(format!("Stale after: {stale_after_hours}h")),
+        Line::from(format!("Created: {}", item.created_at)),
+        Line::from(format!(
+            "Expires: {}",
+            item.expires_at
+                .map_or_else(|| "-".into(), |value| value.to_string())
+        )),
+        Line::from(format!(
+            "Revoked: {}",
+            item.revoked_at
+                .map_or_else(|| "-".into(), |value| value.to_string())
+        )),
+        Line::from(format!(
+            "Last used: {}",
+            item.last_used_at
+                .map_or_else(|| "-".into(), |value| value.to_string())
+        )),
+        Line::from(format!(
+            "Last source: {}",
+            sanitize_metadata(item.last_source_ip.as_deref().unwrap_or("-"), 64)
+        )),
+        Line::from(format!(
+            "Client: {}",
+            sanitize_metadata(item.last_client_version.as_deref().unwrap_or("-"), 128)
+        )),
+    ];
+    if let Some(count) = duplicates.get(&(item.label.clone(), item.group.clone())) {
+        lines.push(Line::from(format!(
+            "Duplicate active tokens: {count} for this label/group"
+        )));
+        match newest_active_token(tokens, &item.label, &item.group) {
+            Some(newest) if newest.id == item.id => {
+                lines.push(Line::from(
+                    "This is the newest token. Keep it and revoke older tokens after sync.",
+                ));
+            }
+            Some(newest) => {
+                lines.push(Line::from(format!(
+                    "Newest token: {}",
+                    sanitize_metadata(&newest.id, 128)
+                )));
+                lines.push(Line::from(
+                    "This is older. Verify the newest token, then press R, then X.",
+                ));
+            }
+            None => {}
+        }
+    } else if item.revoked_at.is_some() {
+        lines.push(Line::from("Revoked; press X to hide it."));
+    }
+    lines
 }
 
 fn format_age(seconds: u64) -> String {
@@ -2309,5 +2390,50 @@ mod tests {
             .filter_map(|index| view.item(index).map(|item| item.id.as_str()))
             .collect::<Vec<_>>();
         assert_eq!(ids, ["mail", "db", "fax"]);
+    }
+
+    fn token(id: &str, created_at: u64, revoked_at: Option<u64>) -> TokenRecord {
+        TokenRecord {
+            id: id.into(),
+            label: "nodetwo.jazminonline.net".into(),
+            group: "jazmin".into(),
+            created_at,
+            expires_at: None,
+            revoked_at,
+            last_used_at: None,
+            last_source_ip: None,
+            last_client_version: None,
+        }
+    }
+
+    #[test]
+    fn duplicate_active_tokens_ignore_revoked_and_identify_newest() {
+        let tokens = vec![
+            token("old", 100, None),
+            token("new", 200, None),
+            token("revoked", 300, Some(300)),
+            TokenRecord {
+                id: "other".into(),
+                label: "nodesix.jazminonline.net".into(),
+                group: "jazmin".into(),
+                ..token("other", 400, None)
+            },
+        ];
+        let duplicates = duplicate_active_token_labels(&tokens);
+        assert_eq!(duplicates.len(), 1);
+        assert_eq!(
+            duplicates.get(&("nodetwo.jazminonline.net".into(), "jazmin".into())),
+            Some(&2)
+        );
+        assert_eq!(
+            newest_active_token(&tokens, "nodetwo.jazminonline.net", "jazmin")
+                .map(|token| token.id.as_str()),
+            Some("new")
+        );
+        assert_eq!(
+            newest_active_token(&tokens, "nodesix.jazminonline.net", "jazmin")
+                .map(|token| token.id.as_str()),
+            Some("other")
+        );
     }
 }

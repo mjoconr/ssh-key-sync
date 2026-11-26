@@ -239,6 +239,11 @@ ssh-key-sync-client --config /etc/ssh-key-sync/client.toml install-cron
 ssh-key-sync-client --config /etc/ssh-key-sync/client.toml install-cron --dry-run
 ```
 
+Cron's `PATH` must include the directory that contains `sshd`, usually
+`/usr/sbin`. The client runs `sshd -T` during sync; a minimal cron `PATH`
+without `/usr/sbin` fails with `NotFound` even though sshd is installed. Debian's
+default cron `PATH` is sufficient; check custom or minimal cron environments.
+
 ## Client Upgrade
 
 The existing configuration and token are preserved:
